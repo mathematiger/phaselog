@@ -15,10 +15,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from lineprofiler.accounting import Profiler
-from lineprofiler.accounting.profiler import _lifecycle_admits
-from lineprofiler.accounting.snapshot import merge_run, new_run_id, read_trace
-from lineprofiler.accounting.trace import (
+from phaselog.accounting import Profiler
+from phaselog.accounting.profiler import _lifecycle_admits
+from phaselog.accounting.snapshot import merge_run, new_run_id, read_trace
+from phaselog.accounting.trace import (
     FLAG_AUTO,
     FLAG_SAMPLED,
     UNMEASURED,
@@ -28,7 +28,7 @@ from lineprofiler.accounting.trace import (
     TraceBuffer,
     WorkerTrace,
 )
-from lineprofiler.accounting.tracealign import (
+from phaselog.accounting.tracealign import (
     AlignedTrace,
     Arrow,
     PlacedSpan,
@@ -269,6 +269,147 @@ def test_a_signal_nobody_waited_on_is_not_an_error() -> None:
     assert not unmatched
 
 
+# ── cross-host clock skew ───────────────────────────────────────────────────
+#
+# The stepped-clock check above catches a clock that moves *within* one worker, because its
+# own anchors then contradict each other. Two hosts whose clocks are each internally
+# consistent but disagree by minutes leave no such evidence in the anchors — the lanes are
+# simply drawn minutes apart and every cross-lane conclusion inverts. The only evidence in
+# the data is in the arrows: a wait released before the signal that released it.
+
+_SKEW_S = 1_000_000_000
+
+
+def _linked_pair(offset_ns: int, iterations: int = 5) -> SimpleNamespace:
+    """An actor signalling and a learner waiting, the learner's wall clock off by ``offset``.
+
+    Both workers stay internally consistent — every wall reading the learner holds moves by
+    the same constant, exactly as when its host's clock is simply set wrong for the whole
+    run — so ``usable_anchors`` sees nothing and the arrows are the only evidence left.
+    """
+    base = 1_700_000_000_000_000_000
+    actor = WorkerTrace(paths=[("collect",)], anchors=[ClockAnchor(perf_ns=0, real_ns=base)])
+    learner = WorkerTrace(
+        paths=[("queue_get",)],
+        anchors=[ClockAnchor(perf_ns=0, real_ns=base + offset_ns)],
+    )
+    for index in range(iterations):
+        at = (index + 1) * 10_000_000
+        actor.spans.append(
+            Span(phase_id=0, thread_id=0, t0_ns=at - 9_000_000, t1_ns=at, cpu_ns=8_000_000,
+                 flags=0),
+        )
+        actor.links.append(_link("batch", str(index), "signal", at))
+        learner.spans.append(
+            Span(phase_id=0, thread_id=0, t0_ns=at, t1_ns=at + 1_000_000, cpu_ns=0, flags=0),
+        )
+        learner.links.append(_link("batch", str(index), "wait", at + 500_000))
+    return SimpleNamespace(workers=[
+        SimpleNamespace(trace=actor, role="actor", label="rank 0 (nodeA)", pid=1,
+                        host="nodeA"),
+        SimpleNamespace(trace=learner, role="learner", label="rank 0 (nodeB)", pid=2,
+                        host="nodeB"),
+    ])
+
+
+def test_a_pair_of_hosts_whose_waits_precede_their_signals_is_reported_as_skewed() -> None:
+    """Received-before-sent is physically impossible; it bounds the disagreement from below."""
+    aligned = align_run(_linked_pair(offset_ns=-300 * _SKEW_S))
+
+    pair = ("rank 0 (nodeA)", "rank 0 (nodeB)")
+    assert pair in aligned.clock_skew_ns
+    assert aligned.clock_skew_ns[pair] >= 299 * _SKEW_S
+
+
+def test_a_healthy_pair_of_hosts_reports_no_clock_skew() -> None:
+    """The detector must stay silent on the run it exists to protect."""
+    aligned = align_run(_linked_pair(offset_ns=0))
+
+    assert aligned.clock_skew_ns == {}
+    assert len(aligned.arrows) == 5
+
+
+def test_an_honest_sub_millisecond_ntp_offset_is_not_called_skew() -> None:
+    """A real cluster's clocks disagree by microseconds; that is noise, not a finding."""
+    aligned = align_run(_linked_pair(offset_ns=-500_000))
+
+    assert aligned.clock_skew_ns == {}
+
+
+def test_a_single_backward_arrow_is_a_race_not_a_skew() -> None:
+    """The two ends of one hand-off are stamped by different processes; one inversion is an
+    anecdote about scheduling, not a property of the clock pair."""
+    aligned = align_run(_linked_pair(offset_ns=-300 * _SKEW_S, iterations=1))
+
+    assert aligned.clock_skew_ns == {}
+
+
+def test_the_accuracy_note_withdraws_its_noise_endorsement_for_skewed_clocks() -> None:
+    """"Treat sub-millisecond gaps as noise" under lanes drawn 300 s apart is the wrong
+    sentence in the one place the reader checks how far to trust the axis."""
+    skew = {("rank 0 (nodeA)", "rank 0 (nodeB)"): 300 * _SKEW_S}
+
+    note = alignment_accuracy_note({"nodeA", "nodeB"}, clock_skew_ns=skew)
+
+    assert "noise" not in note
+    assert "rank 0 (nodeA)" in note and "rank 0 (nodeB)" in note
+    assert "at least" in note
+    assert "unreliable" in note
+
+
+# ── two workers sharing a pid ───────────────────────────────────────────────
+#
+# The documented sweep pattern — one long-lived process running one profiler per config into
+# the same run_id — writes two worker files with the same pid. Disambiguating repeated
+# labels by pid alone collapsed them onto one lane, and the dicts keyed by label kept only
+# the last worker's links and clock verdicts.
+
+
+def _same_pid_pair() -> SimpleNamespace:
+    first = WorkerTrace(paths=[("config_a",)], anchors=[ClockAnchor(perf_ns=0, real_ns=0)])
+    first.spans.append(Span(phase_id=0, thread_id=0, t0_ns=0, t1_ns=50, cpu_ns=0, flags=0))
+    first.links.append(_link("handoff", "1", "signal", 40))
+    second = WorkerTrace(paths=[("config_b",)], anchors=[ClockAnchor(perf_ns=0, real_ns=0)])
+    second.spans.append(Span(phase_id=0, thread_id=0, t0_ns=60, t1_ns=90, cpu_ns=0, flags=0))
+    second.links.append(_link("handoff", "1", "wait", 70))
+    return SimpleNamespace(workers=[
+        SimpleNamespace(trace=first, role="worker", label="node0:7", pid=7, host="node0",
+                        path=Path("w_ATT-sweep_7_aaaa1111.json")),
+        SimpleNamespace(trace=second, role="worker", label="node0:7", pid=7, host="node0",
+                        path=Path("w_ATT-sweep_7_bbbb2222.json")),
+    ])
+
+
+def test_two_workers_sharing_a_pid_keep_their_own_lanes() -> None:
+    aligned = align_run(_same_pid_pair())
+
+    assert len(aligned.lanes) == 2
+    assert len({span.worker for span in aligned.spans}) == 2
+
+
+def test_two_workers_sharing_a_pid_do_not_clobber_each_others_links() -> None:
+    """Last-writer-wins on the label key silently dropped the first worker's signal."""
+    aligned = align_run(_same_pid_pair())
+
+    assert len(aligned.arrows) == 1
+    assert not aligned.unmatched_waits
+
+
+def test_a_sweeps_sequential_profilers_land_on_separate_lanes(tmp_path: Path) -> None:
+    """The real shape of the collision: two profilers run in turn by one process."""
+    for name in ("config_a", "config_b"):
+        profiler = Profiler(
+            run_dir=tmp_path, role="worker", run_id="ATT-sweep", enabled=True,
+            snapshot_interval_s=None, sample_interval_s=None, trace=True,
+        )
+        with profiler, profiler.phase(name):
+            pass
+
+    aligned = align_run(merge_run(tmp_path, with_trace=True))
+
+    assert len(aligned.lanes) == 2
+
+
 # ── derived views ───────────────────────────────────────────────────────────
 
 
@@ -391,7 +532,7 @@ def test_the_environment_variable_turns_tracing_on(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Tier 0 with zero code changes: a launcher exports one variable."""
-    monkeypatch.setenv("LINEPROFILER_TRACE", "1")
+    monkeypatch.setenv("PHASELOG_TRACE", "1")
     profiler = Profiler(
         run_dir=tmp_path, role="main", enabled=True,
         snapshot_interval_s=None, sample_interval_s=None,
@@ -422,7 +563,7 @@ def test_signal_and_wait_on_are_no_ops_without_tracing(tmp_path: Path) -> None:
 
 
 def test_the_module_level_helpers_no_op_with_nothing_installed() -> None:
-    from lineprofiler.accounting import signal_ready, wait_on
+    from phaselog.accounting import signal_ready, wait_on
 
     signal_ready("batch", 1)
     wait_on("batch", 1)

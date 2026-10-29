@@ -1,0 +1,3 @@
+# A blank issue is still allowed: a question, or something that fits none of the forms,
+# should not be blocked by a form that does not fit it.
+blank_issues_enabled: true

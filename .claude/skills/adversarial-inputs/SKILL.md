@@ -20,8 +20,8 @@ Skeleton — scratchpad only, never `tests/`:
 
 ```python
 from pathlib import Path
-from lineprofiler.accounting import Profiler
-from lineprofiler import accounting
+from phaselog.accounting import Profiler
+from phaselog import accounting
 
 RUN = Path("/abs/path/to/scratchpad/run").resolve()
 
@@ -41,9 +41,9 @@ p.close()
 Then render **all three** outputs and assert against the bytes on disk. A probe that stops at "it didn't raise" has tested nothing that matters:
 
 ```
-poetry run python -m lineprofiler.accounting.cli report RUN -o r.txt
-poetry run python -m lineprofiler.accounting.cli report RUN --format html -o r.html
-poetry run python -m lineprofiler.accounting.cli trace  RUN -o t.html
+poetry run python -m phaselog.accounting.cli report RUN -o r.txt
+poetry run python -m phaselog.accounting.cli report RUN --format html -o r.html
+poetry run python -m phaselog.accounting.cli trace  RUN -o t.html
 ```
 
 Inspect with Python, not `grep`. Counting occurrences of a multi-line or control-character needle with shell tools gives silently wrong answers here.

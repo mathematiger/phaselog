@@ -13,11 +13,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from lineprofiler.accounting import Backend, Profiler, merge_run, render, write_trace
-from lineprofiler.accounting import capabilities as capabilities_module
-from lineprofiler.accounting import hardware as hardware_module
-from lineprofiler.accounting import sampler as sampler_module
-from lineprofiler.accounting.analysis import (
+from phaselog.accounting import Backend, Profiler, merge_run, render, write_trace
+from phaselog.accounting import capabilities as capabilities_module
+from phaselog.accounting import hardware as hardware_module
+from phaselog.accounting import sampler as sampler_module
+from phaselog.accounting.analysis import (
     CpuUsage,
     SampleAnalysis,
     analyse,
@@ -25,11 +25,11 @@ from lineprofiler.accounting.analysis import (
     format_bytes,
     sparkline,
 )
-from lineprofiler.accounting.backend import BackendWindow
-from lineprofiler.accounting.cli import main as cli_main
-from lineprofiler.accounting.compare import compare, comparison_as_dict, render_comparison
-from lineprofiler.accounting.phasetree import PhaseStats
-from lineprofiler.accounting.report import (
+from phaselog.accounting.backend import BackendWindow
+from phaselog.accounting.cli import main as cli_main
+from phaselog.accounting.compare import compare, comparison_as_dict, render_comparison
+from phaselog.accounting.phasetree import PhaseStats
+from phaselog.accounting.report import (
     _dominant_rows,
     _gpu_block,
     _percent_of,
@@ -37,9 +37,9 @@ from lineprofiler.accounting.report import (
     pooled_capacity,
     report_as_dict,
 )
-from lineprofiler.accounting.sampler import ResourceSampler, Sample, _compact, read_samples
-from lineprofiler.accounting.snapshot import imbalance_of, new_run_id
-from lineprofiler.accounting.trace import FLAG_ASYNC_UNSYNCED
+from phaselog.accounting.sampler import ResourceSampler, Sample, _compact, read_samples
+from phaselog.accounting.snapshot import imbalance_of, new_run_id
+from phaselog.accounting.trace import FLAG_ASYNC_UNSYNCED
 
 # ── roles ───────────────────────────────────────────────────────────────────
 
@@ -89,7 +89,7 @@ def test_unknown_role_gives_an_empty_tree(tmp_path: Path) -> None:
 def test_role_comes_from_the_environment_when_not_given(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv("LINEPROFILER_ROLE", "inference")
+    monkeypatch.setenv("PHASELOG_ROLE", "inference")
     profiler = Profiler(run_dir=tmp_path, enabled=True, snapshot_interval_s=None,
                         sample_interval_s=None)
     assert profiler.role == "inference"
@@ -97,7 +97,7 @@ def test_role_comes_from_the_environment_when_not_given(
 
 
 def test_explicit_role_beats_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("LINEPROFILER_ROLE", "inference")
+    monkeypatch.setenv("PHASELOG_ROLE", "inference")
     assert Profiler(enabled=False, role="learner").role == "learner"
 
 
@@ -251,7 +251,7 @@ def test_sampler_thread_does_not_block_interpreter_exit(tmp_path: Path) -> None:
     import sys
 
     script = (
-        "from lineprofiler.accounting import Profiler\n"
+        "from phaselog.accounting import Profiler\n"
         f"p = Profiler(run_dir={str(tmp_path)!r}, enabled=True, sample_interval_s=0.05)\n"
         "with p.phase('x'):\n"
         "    pass\n"

@@ -409,7 +409,7 @@ which phases ran, how much work each did, which workers went quiet. That makes i
 target, not just something to read:
 
 ```python
-from lineprofiler.accounting import merge_run
+from phaselog.accounting import merge_run
 
 run = merge_run("profile", with_samples=False)   # phases only: fast, and megabytes smaller
 
@@ -436,12 +436,12 @@ latest = max(w.written_at for w in run.workers)
 assert all(latest - w.written_at < 300 for w in run.workers), "a worker stopped writing"
 ```
 
-For a CI gate outside Python, `lineprofiler report <dir> --json` gives the same document —
+For a CI gate outside Python, `phaselog report <dir> --json` gives the same document —
 `run`, `roles[].phases[]`, `workers[]` and `caveats` — with the shares and quantiles already
 derived. `caveats` is part of that document on purpose: a run that lost a worker must not read
 as a complete result to a program either.
 
-Set `enabled=True` explicitly in tests rather than relying on `LINEPROFILER_PROFILE`, and pass
+Set `enabled=True` explicitly in tests rather than relying on `PHASELOG_PROFILE`, and pass
 `snapshot_interval_s=None, sample_interval_s=None` to keep the run deterministic and
 thread-free; call `close()` to flush.
 
@@ -452,7 +452,7 @@ waiting *for*, because a total has no position on a clock. That is what the trac
 is for:
 
 ```
-lineprofiler trace profile/ -o trace.html
+phaselog trace profile/ -o trace.html
 ```
 
 The first question about any long wait is binary: **is this a hang, or is it queueing behind
@@ -470,7 +470,7 @@ brush across a wait to get the same breakdown for that moment.
 Scriptable, without parsing the page:
 
 ```python
-from lineprofiler.accounting import overlap_ns
+from phaselog.accounting import overlap_ns
 
 overlap_ns([(wait_start, wait_end)], [(busy_start, busy_end)])   # nanoseconds in both
 ```
@@ -486,8 +486,8 @@ two-actor/one-learner pipeline, each tier applied as its own commit:
 
 | tier | your diff | what it buys |
 |---|---|---|
-| `LINEPROFILER_TRACE=auto` | **0 lines** | lanes and nesting derived from function calls |
-| `LINEPROFILER_TRACE=1` | **0 lines** | lanes from the phases you already name |
+| `PHASELOG_TRACE=auto` | **0 lines** | lanes and nesting derived from function calls |
+| `PHASELOG_TRACE=1` | **0 lines** | lanes from the phases you already name |
 | `trace=True` | **1 line per `Profiler(...)`** | the same, set in code |
 | `signal()` / `wait_on()` | **1 line per queue endpoint** | arrows, and a critical path that crosses processes |
 

@@ -17,11 +17,11 @@ that, use the accounting layer.
   are all found on their first call
 - **Line-level timing** – see exactly which lines are slow
 - **Auto-filtering** – only profiles code in your project (auto-detects git repo root), further
-  narrowed by an optional `[tool.lineprofiler]` table
+  narrowed by an optional `[tool.phaselog]` table
 - **Flexible output** – sort by time, hits, or line number; filter by threshold
 
 ```python
-from lineprofiler import LineProfiler
+from phaselog import LineProfiler
 profiler = LineProfiler(project_folder="path/to/your/project")
 profiler.clear()
 with profiler:
@@ -139,7 +139,7 @@ found on its first call, closures and `runpy` scripts included.
 
 ## Running a script without editing it
 
-    lineprofiler run script.py [args...] [--top N] [--functions] [--html report.html]
+    phaselog run script.py [args...] [--top N] [--functions] [--html report.html]
 
 The `kernprof` equivalent, with no decorators to add: the script runs normally, everything
 under its project folder is profiled, its exit status is preserved, and the summary prints even
@@ -152,5 +152,6 @@ if it raises.
   of the two. Reach for `engine="builtin"`, which keys on the code object instead.
 - `sys.settrace` is global and single-tracer, so that backend cannot run alongside another
   tracing profiler (including `accounting`'s `backend=` window). The `sys.monitoring` ones can.
+- Time a coroutine spends *suspended* in the event loop is not attributed to any line, under either engine: an `await asyncio.sleep(0.3)` reports zero, because the frame is closed while it waits.
 - No memory, native-time or GPU attribution. That is [Scalene](https://github.com/plasma-umass/scalene)'s
   job and it does it well; see [the comparison](comparison.md).

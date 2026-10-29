@@ -15,9 +15,9 @@ from collections.abc import Iterator
 
 import pytest
 
-from lineprofiler import config as _config_module
-from lineprofiler import profiler as _line_profiler_module
-from lineprofiler.accounting import profiler as _profiler_module
+from phaselog import config as _config_module
+from phaselog import profiler as _line_profiler_module
+from phaselog.accounting import profiler as _profiler_module
 
 _WATCHED_SIGNALS = (signal.SIGTERM, signal.SIGUSR1, signal.SIGHUP)
 

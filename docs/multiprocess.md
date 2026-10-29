@@ -22,7 +22,7 @@ counts processes by worker file rather than by pid, which collides across nodes.
 
 **Runs are identified.** A rerun into the same directory is a separate attempt: `report` shows
 the newest and names the superseded ones rather than merging them, which used to inflate every
-total for a requeued job. Children inherit the attempt through `LINEPROFILER_RUN_ID`.
+total for a requeued job. Children inherit the attempt through `PHASELOG_RUN_ID`.
 
 **Runs record the code they measured.** The report header names the git revision, and marks a
 dirty tree with a file count and a hash of the diff:
@@ -97,11 +97,11 @@ worker that raises still contributes everything it recorded before dying; a work
 `SIGKILL`ed before its first flush leaves nothing, and the report says so rather than
 under-reporting silently.
 
-Enabling a profiler sets `LINEPROFILER_PROFILE=1` and `LINEPROFILER_RUN_DIR` in the
+Enabling a profiler sets `PHASELOG_PROFILE=1` and `PHASELOG_RUN_DIR` in the
 environment, so `Profiler(role="actor")` in a spawned worker joins the parent's run with no
 configuration threaded through. **`forkserver` is the exception**: its daemon is forked once
 and its children inherit the daemon's environment as it was when the daemon started, so
-export `LINEPROFILER_PROFILE=1` in the shell before training, or pass `enabled` and
+export `PHASELOG_PROFILE=1` in the shell before training, or pass `enabled` and
 `run_dir` to each worker explicitly.
 
 Forking is handled: a forked child gets its own file, an empty tree and a clean phase stack,

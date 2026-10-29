@@ -7,7 +7,7 @@ package — which is what you want from something you attach to a ticket.
 ## The accounting report
 
 ```
-lineprofiler report profile/ --format html -o report.html
+phaselog report profile/ --format html -o report.html
 ```
 
 The page carries:
@@ -27,7 +27,7 @@ as an overflow would read as a measurement error rather than the aggregation it 
 ### The embedded data block
 
 Every page carries the `--format json` document in a
-`<script type="application/json" id="lineprofiler-data">` block. It is embedded *alongside*
+`<script type="application/json" id="phaselog-data">` block. It is embedded *alongside*
 the figures rather than used to draw them, and there is a test asserting the two match. So
 you can pull the exact numbers behind any bar out of the page itself:
 
@@ -35,7 +35,7 @@ you can pull the exact numbers behind any bar out of the page itself:
 import json, re
 html = open("report.html").read()
 block = re.search(
-    r'<script type="application/json" id="lineprofiler-data">(.*?)</script>',
+    r'<script type="application/json" id="phaselog-data">(.*?)</script>',
     html, re.DOTALL,
 ).group(1)
 data = json.loads(block.replace("<\\/", "</"))
@@ -48,7 +48,7 @@ and a phase named `</script>` would otherwise end the block early.)
 ## The line-profiler report
 
 ```python
-from lineprofiler import LineProfiler
+from phaselog import LineProfiler
 
 profiler = LineProfiler()
 with profiler:
@@ -73,45 +73,48 @@ Two choices worth knowing:
 
 | Command | Output |
 |---|---|
-| `lineprofiler report <dir>` | text table, to stdout |
-| `lineprofiler report <dir> --format json` | the machine-readable document, for CI gates and diffs |
-| `lineprofiler report <dir> --format html -o out.html` | the page above |
-| `lineprofiler compare <a> <b> [--format json]` | what changed between two runs |
-| `lineprofiler trace <dir> -o trace.html` | the timeline page |
-| `lineprofiler trace <dir> --max-spans N` | cap what is drawn, keeping the longest spans |
-| `lineprofiler trace <dir> -q` | suppress the stderr progress lines |
-| `lineprofiler trace <dir> --fail-over N` | exit non-zero if any finding costs more than N% of the run |
+| `phaselog report <dir>` | text table, to stdout |
+| `phaselog report <dir> --format json` | the machine-readable document, for CI gates and diffs |
+| `phaselog report <dir> --format html -o out.html` | the page above |
+| `phaselog compare <a> <b> [--format json]` | what changed between two runs |
+| `phaselog trace <dir> -o trace.html` | the timeline page |
+| `phaselog trace <dir> --format chrome -o t.json` | the same spans and arrows as Chrome trace events, for [Perfetto](https://ui.perfetto.dev) |
+| `phaselog trace <dir> --max-spans N` | cap what is drawn, keeping the longest spans |
+| `phaselog trace <dir> -q` | suppress the stderr progress lines |
+| `phaselog trace <dir> --fail-over N` | exit non-zero if any finding costs more than N% of the run |
 
 `--output`/`-o` writes to a path instead of stdout. It does not create parent directories: on
 a command line a path that does not exist is usually a typo, and failing loudly beats
 scattering directories. The library call `write_html()` does create them, since a caller
 writing to `reports/run-17.html` from code means it.
 
-Every command also works as `python -m lineprofiler ...`, for when the console script is not on `PATH`.
+Every command also works as `python -m phaselog ...`, for when the console script is not on `PATH`.
 
 ### From code
 
 The same two documents can be written by the script that produced the run, without shelling out to the CLI:
 
 ```python
-from lineprofiler.accounting import write_report, write_trace
+from phaselog.accounting import write_report, write_trace
 
 write_report("profile", "reports/run-17.html", format="html")   # text | json | html
 write_trace("profile", "reports/run-17-trace.html")             # html | json
 ```
 
-The formats are exactly the CLI's, and an unrecognised one raises rather than quietly falling back. Both create parent directories, as `write_html()` does. Both read the trace sidecars: the findings, the occupancy and the request-lifecycle blocks are all derived from spans, so a run recorded with `trace=True` renders with everything it was instrumented for. `write_trace(..., format="json")` emits the same document `lineprofiler trace --format json` prints — one derivation, so a gate and the file beside it cannot disagree.
+The formats are exactly the CLI's, and an unrecognised one raises rather than quietly falling back. Both create parent directories, as `write_html()` does. Both read the trace sidecars: the findings, the occupancy and the request-lifecycle blocks are all derived from spans, so a run recorded with `trace=True` renders with everything it was instrumented for. `write_trace(..., format="json")` emits the same document `phaselog trace --format json` prints — one derivation, so a gate and the file beside it cannot disagree.
 
 ## The trace timeline
 
 ```
-lineprofiler trace profile/ -o trace.html
+phaselog trace profile/ -o trace.html
 ```
 
 The report answers *where did the time go?* This answers the question a set of totals
 structurally cannot: *why was this worker idle at that moment, and who was it waiting for?*
 A phase tree can say `queue_get` was 80% wait; only a timeline can show that the wait began
 the instant the learner finished and ended when actor 3 finally published its batch.
+
+The same aligned spans and arrows export as Chrome trace events with `--format chrome`: one process per worker, one thread per lane, arrows as flow events, sampled and async-submission spans labelled in their `args` rather than passing as measured. Open the file in [Perfetto](https://ui.perfetto.dev) when you need what this page deliberately does not build — search, SQL over slices, flame charts, or laying the run beside a Kineto capture. The findings and the GPU strip stay behind: the first are this package's conclusions rather than data, and the second is a 1 Hz whole-device reading that joins to nothing.
 
 The page is ordered as conclusions first, evidence after — you should know what is wrong
 before you are asked to read a chart:
@@ -219,8 +222,8 @@ ways to turn it on, in increasing order of what they ask of your code:
 
 | | change to your code | what you get |
 |---|---|---|
-| `LINEPROFILER_TRACE=auto` | **nothing** | lanes and nesting derived from function calls |
-| `LINEPROFILER_TRACE=1` | **nothing** | lanes from the phases you already name |
+| `PHASELOG_TRACE=auto` | **nothing** | lanes and nesting derived from function calls |
+| `PHASELOG_TRACE=1` | **nothing** | lanes from the phases you already name |
 | `Profiler(..., trace=True)` | **one word** | the same, set in code |
 | `signal()` / `wait_on()` | **two lines per queue** | arrows and a cross-process critical path |
 

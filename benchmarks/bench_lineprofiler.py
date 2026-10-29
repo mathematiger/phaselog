@@ -43,7 +43,7 @@ def _row(label: str, seconds: float, baseline: float) -> str:
 
 
 def main() -> None:
-    from lineprofiler import LineProfiler
+    from phaselog import LineProfiler
 
     here = str(Path(__file__).resolve().parent)
     baseline = _best(lambda: work(ITERATIONS))
@@ -89,7 +89,7 @@ def _regions(here: str, baseline: float) -> None:  # noqa: ARG001
     second profiler per region and pays to switch it on and off. The pure-Python engine only
     appends to a list at the boundary, and bills every open region on every line instead.
     """
-    from lineprofiler import LineProfiler
+    from phaselog import LineProfiler
 
     print(f"\n{'':<34} {'open, per event':>16} {'per boundary':>14}")  # noqa: T201
     engines = (("line_profiler", None), ("builtin", "monitoring"), ("builtin", "settrace"))
@@ -113,7 +113,7 @@ BOUNDARIES = 20_000
 
 def _switch_cost(engine: str, backend: str | None) -> float:
     """Seconds to enter and leave a region, with nothing else being profiled."""
-    from lineprofiler import LineProfiler
+    from phaselog import LineProfiler
 
     with tempfile.TemporaryDirectory() as empty:
         profiler = LineProfiler(project_folder=empty, engine=engine, backend=backend)  # type: ignore[arg-type]

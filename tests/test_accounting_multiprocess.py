@@ -20,10 +20,10 @@ from pathlib import Path
 
 import pytest
 
-from lineprofiler import accounting
-from lineprofiler.accounting import Profiler, merge_run
-from lineprofiler.accounting.profiler import ENV_ENABLE, ENV_RUN_DIR
-from lineprofiler.accounting.snapshot import new_run_id
+from phaselog import accounting
+from phaselog.accounting import Profiler, merge_run
+from phaselog.accounting.profiler import ENV_ENABLE, ENV_RUN_DIR
+from phaselog.accounting.snapshot import new_run_id
 
 START_METHODS = ["spawn", "fork", "forkserver"]
 UNITS_PER_WORKER = 7
@@ -301,7 +301,7 @@ def test_forkserver_children_need_the_environment_set_before_the_daemon_starts(
     The forkserver daemon is a long-lived process forked once, and its children inherit the
     daemon's environment — a snapshot taken when the daemon started. Variables exported
     afterwards never reach them. Under ``forkserver``, either export
-    ``LINEPROFILER_PROFILE`` in the shell before training starts, or pass ``enabled`` and
+    ``PHASELOG_PROFILE`` in the shell before training starts, or pass ``enabled`` and
     ``run_dir`` to the worker's ``Profiler`` explicitly.
     """
     context = _context("forkserver")
@@ -436,7 +436,7 @@ def test_no_profiler_thread_is_alive_across_a_fork(tmp_path: Path) -> None:
 def _profiler_threads() -> list[str]:
     import threading
 
-    return [t.name for t in threading.enumerate() if t.name.startswith("lineprofiler")]
+    return [t.name for t in threading.enumerate() if t.name.startswith("phaselog")]
 
 
 # ── the ambient profiler across start methods ───────────────────────────────

@@ -16,13 +16,13 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from lineprofiler.accounting import Profiler
-from lineprofiler.accounting.cli import main
-from lineprofiler.accounting.findings import phase_totals, rank_findings
-from lineprofiler.accounting.report import _concurrency_rows, render, report_as_dict
-from lineprofiler.accounting.snapshot import merge_run
-from lineprofiler.accounting.trace import FLAG_DEVICE_SYNC
-from lineprofiler.accounting.tracealign import AlignedTrace, Arrow, PlacedSpan
+from phaselog.accounting import Profiler
+from phaselog.accounting.cli import main
+from phaselog.accounting.findings import _MAX_FINDINGS, phase_totals, rank_findings
+from phaselog.accounting.report import _concurrency_rows, render, report_as_dict
+from phaselog.accounting.snapshot import merge_run
+from phaselog.accounting.trace import FLAG_DEVICE_SYNC
+from phaselog.accounting.tracealign import AlignedTrace, Arrow, PlacedSpan
 
 _MS = 1_000_000
 
@@ -284,6 +284,78 @@ def test_idle_lanes_of_one_role_collapse_into_a_single_finding() -> None:
     assert len(idle[0].lanes) == 4
 
 
+def _overflowed_trace(entries: int = 4_200) -> AlignedTrace:
+    """One busy lane and one lane that looks idle because its phase tree overflowed."""
+    trace = _trace([
+        _span("learner", ("train",), 0, 1000, cpu_ms=1000, role="learner"),
+        _span("actor", ("step",), 0, 50, cpu_ms=50, role="actor"),
+    ])
+    trace.phase_overflow["actor"] = entries
+    return trace
+
+
+def test_an_overflowed_worker_is_never_called_idle() -> None:
+    """The defect: folded phases record nothing, so the gap they leave read as unused
+    capacity — the artifact affirmed idleness for time that was real, unrecorded work."""
+    findings = rank_findings(_overflowed_trace())
+
+    idle = [finding for finding in findings if finding.kind == "idle-lane"]
+    assert idle == [], "the idle claim rests on evidence the overflow destroyed"
+
+
+def test_the_withheld_idle_claim_is_stated_rather_than_dropped() -> None:
+    """Silence renders as a healthy run. The reader is told what is not being claimed."""
+    findings = rank_findings(_overflowed_trace())
+
+    withheld = next(finding for finding in findings if finding.kind == "idle-unjudgeable")
+    assert "actor#0" in withheld.headline
+    assert "recorded nothing" in withheld.detail
+    assert withheld.anchor == "actor#0", "it still has to point somewhere on the timeline"
+    assert withheld.cost_pct == 0.0, "a CI gate must not fail on a claim that was withheld"
+
+
+def test_a_lane_whose_worker_did_not_overflow_keeps_its_idle_finding() -> None:
+    """Only the tainted worker loses the claim: one overflow must not silence the run."""
+    trace = _trace([
+        _span("learner", ("train",), 0, 1000, cpu_ms=1000, role="learner"),
+        _span("actor", ("step",), 0, 50, cpu_ms=50, role="actor"),
+        _span("evaluator", ("eval",), 0, 50, cpu_ms=50, role="evaluator"),
+    ])
+    trace.phase_overflow["actor"] = 4_200
+
+    idle = [finding for finding in rank_findings(trace) if finding.kind == "idle-lane"]
+
+    assert [finding.lanes for finding in idle] == [("evaluator#0",)]
+
+
+def test_an_overflow_that_withheld_nothing_adds_no_finding() -> None:
+    """A busy worker that overflowed had no idle claim to suppress, and the findings block
+    is about this run's conclusions — the header carries the fact that it overflowed."""
+    trace = _trace([_span("w", ("train",), 0, 1000, cpu_ms=1000, role="w")])
+    trace.phase_overflow["w"] = 4_200
+
+    kinds = {finding.kind for finding in rank_findings(trace)}
+
+    assert "idle-unjudgeable" not in kinds
+
+
+def test_the_withheld_claim_survives_a_full_ranking() -> None:
+    """It carries no cost, so ranking it against six real findings would cut it. It is
+    appended after the cut instead — a disclosure does not compete for the list."""
+    spans = [_span("actor", ("step",), 0, 50, cpu_ms=50, role="actor")]
+    for index in range(8):
+        spans.append(
+            _span(f"w{index}", (f"blocked{index}",), 0, 1000, cpu_ms=0, role=f"w{index}"),
+        )
+    trace = _trace(spans)
+    trace.phase_overflow["actor"] = 4_200
+
+    findings = rank_findings(trace)
+
+    assert len(findings) > _MAX_FINDINGS
+    assert findings[-1].kind == "idle-unjudgeable"
+
+
 def test_findings_are_ranked_by_what_they_cost() -> None:
     """The list is a ranking; an unordered one would bury the answer under a detail."""
     trace = _trace([
@@ -315,6 +387,39 @@ def test_a_healthy_run_produces_no_findings() -> None:
 
 def test_an_empty_trace_is_not_an_error() -> None:
     assert rank_findings(AlignedTrace()) == []
+
+
+def test_findings_resting_on_skewed_clocks_carry_the_caveat_inline() -> None:
+    """Every finding's cost is a share of a duration the skew itself inflates, so the caveat
+    rides on the sentence rather than sitting in a block the reader never reaches.
+
+    Suppression would be worse: an empty findings list renders as "nothing is wrong", which
+    on a skewed run is exactly the confident wrong conclusion this layer exists to avoid.
+    """
+    trace = _trace([
+        _span("learner", ("queue_get",), 0, 900, cpu_ms=0, role="learner"),
+        _span("actor", ("collect",), 0, 100, cpu_ms=100, role="actor"),
+    ])
+    trace.clock_skew_ns = {("actor", "learner"): 300 * 1_000_000_000}
+
+    findings = rank_findings(trace)
+
+    assert findings
+    assert all("clocks" in finding.detail and "disagree" in finding.detail
+               for finding in findings)
+
+
+def test_a_run_with_agreeing_clocks_gets_no_clock_caveat() -> None:
+    """The caveat must not become furniture on the ordinary run."""
+    trace = _trace([
+        _span("learner", ("queue_get",), 0, 900, cpu_ms=0, role="learner"),
+        _span("actor", ("collect",), 0, 100, cpu_ms=100, role="actor"),
+    ])
+
+    findings = rank_findings(trace)
+
+    assert findings
+    assert all("disagree" not in finding.detail for finding in findings)
 
 
 def test_the_phase_summary_marks_a_row_whose_blocked_time_is_the_device() -> None:
@@ -465,3 +570,93 @@ def test_the_gate_still_writes_the_report_it_failed_on(tmp_path: Path) -> None:
     main(["trace", str(tmp_path), "--fail-over", "1", "-o", str(page), "-q"])
 
     assert page.read_text(encoding="utf-8").startswith("<!doctype html>")
+
+
+def test_recorded_arrows_overrule_the_stall_verdict_in_the_role_summary() -> None:
+    """A wait with recorded releases is a queue, whatever the other lanes were doing.
+
+    ``_concurrency_rows`` used to reach its verdict from concurrent activity alone: a
+    producer working outside any instrumented phase — or a producer whose lane the trace
+    never carried — left "no other lane was active", and the row printed "this is a stall,
+    not a queue" over recorded signal/wait_on pairs proving the queue. The findings block
+    already prefers recorded evidence to inference; the role summary must not contradict it
+    on the same page.
+    """
+    trace = _trace(
+        [
+            _span("learner", ("queue_get",), 100, 900, cpu_ms=0, role="learner"),
+        ],
+        arrows=[
+            Arrow(
+                channel="batch", key=str(key), src_worker="actor", dst_worker="learner",
+                src_t_ns=(150 + key * 100) * _MS, dst_t_ns=(200 + key * 100) * _MS,
+            )
+            for key in range(3)
+        ],
+    )
+
+    rows = _concurrency_rows("learner", trace)
+
+    assert not any("this is a stall" in row for row in rows), rows
+    assert any("signal" in row and "queue" in row for row in rows), rows
+
+
+def test_a_wait_with_no_arrows_and_no_activity_is_still_called_a_stall() -> None:
+    trace = _trace([
+        _span("learner", ("queue_get",), 100, 900, cpu_ms=0, role="learner"),
+    ])
+
+    rows = _concurrency_rows("learner", trace)
+
+    assert any("stall" in row for row in rows), rows
+
+
+def test_a_headline_never_carries_an_unbounded_phase_name() -> None:
+    """A phase named from data has no length bound, and a headline is the first line read.
+
+    The report and the timeline both render ``Finding.headline``; bounding it where it is
+    composed covers every renderer at once, the way iteration 1's chokepoints do for table
+    cells. The anchor keeps the full name — it is matched, not read.
+    """
+    long_name = "q" * 10_000
+    trace = _trace([
+        _span("learner", ("iteration",), 0, 100, cpu_ms=100, role="learner"),
+        _span("learner", (long_name,), 100, 900, cpu_ms=0, role="learner"),
+    ])
+
+    findings = rank_findings(trace)
+
+    blocked = next(finding for finding in findings if finding.kind == "blocked-phase")
+    assert len(blocked.headline) < 250, len(blocked.headline)
+    assert blocked.anchor == long_name
+    assert "…" in blocked.headline
+
+
+def test_the_documented_wait_on_placement_still_counts_as_recorded_evidence() -> None:
+    """The docs stamp ``wait_on`` on the line *after* the ``with`` block closes.
+
+    That stamp lands bookkeeping-microseconds after the span's end, so strict containment —
+    the 0.8.3 fix for arrows explaining unrelated phases — quietly turned the recorded-
+    evidence tier off for exactly the instrumentation the docs teach: a healthy probe run
+    matched 0 of its 20 arrows, and every queue verdict fell back to the hedged concurrency
+    inference. An arrow within a millisecond of the wait's end is that wait's release; an
+    arrow seconds away, inside some other phase's time, still must not count.
+    """
+    span = _span("learner", ("queue_get",), 100, 900, cpu_ms=0, role="learner")
+    just_after = Arrow(
+        channel="batch", key="1", src_worker="actor", dst_worker="learner",
+        src_t_ns=850 * _MS, dst_t_ns=900 * _MS + 200_000,
+    )
+    far_away = Arrow(
+        channel="batch", key="2", src_worker="actor", dst_worker="learner",
+        src_t_ns=1_500 * _MS, dst_t_ns=2_000 * _MS,
+    )
+    trace = _trace([span], arrows=[just_after, far_away])
+
+    from phaselog.accounting.findings import _arrows_received_during
+
+    matched = _arrows_received_during(trace, [span])
+    assert [arrow.key for arrow in matched] == ["1"]
+
+    blocked = next(f for f in rank_findings(trace) if f.kind == "blocked-phase")
+    assert "recorded signal/wait_on pair" in blocked.detail

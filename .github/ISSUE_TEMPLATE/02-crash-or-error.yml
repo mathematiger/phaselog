@@ -1,0 +1,62 @@
+name: Crash, hang or error
+description: An exception, a hang, a warning you cannot silence, or a run that produced no artifacts at all.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The profiler is meant never to be the reason a run fails. A crash *caused by* profiling — rather than merely observed during it — is treated as a serious bug even when the workaround is obvious.
+
+  - type: dropdown
+    id: tool
+    attributes:
+      label: Which tool
+      options:
+        - The accounting layer (phaselog.accounting)
+        - The line profiler (phaselog.LineProfiler)
+        - The CLI (phaselog report / compare / trace)
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Include the full traceback, or describe the hang precisely (which process, what it was doing, whether it recovered).
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Smallest reproduction you have
+      description: A script is ideal. Failing that, the profiler construction and the surrounding structure — a `fork` inside an open phase, a signal handler, a second profiler in the same process, and an interpreter shutdown are the four places this has gone wrong before.
+      render: python
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: phaselog version
+      placeholder: "0.9.0"
+    validations:
+      required: true
+
+  - type: input
+    id: python
+    attributes:
+      label: Python version and OS
+      placeholder: "3.12.3, Linux (Rocky 8)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Anything else sharing the interpreter
+      description: coverage.py, pdb, VizTracer, cProfile, `torch.profiler`, a debugger, another `sys.settrace` user, or a launcher that installs signal handlers. Only one tracing backend can be active at a time, and several of these contend for the same hook.
+    validations:
+      required: false

@@ -4,7 +4,7 @@ Semantic phase accounting for long, multi-process runs. Aggregates only — coun
 fixed-bucket histogram per region — so memory per phase is constant no matter how long the
 run lasts, and cheap enough to leave enabled for twelve hours.
 
-`lineprofiler.accounting` is a separate, always-on layer for multi-hour, multi-process
+`phaselog.accounting` is a separate, always-on layer for multi-hour, multi-process
 training runs, where line-level tracing is far too expensive. You name the regions; it
 records aggregates only — counts, sums and a fixed-bucket histogram per region — so memory
 per phase is constant no matter how long the run lasts.
@@ -13,10 +13,10 @@ Every process in the pipeline constructs one, tagged with the *role* it plays. R
 free-form strings: whatever your architecture calls its processes.
 
 ```python
-from lineprofiler.accounting import Profiler
+from phaselog.accounting import Profiler
 
 # in each actor process
-profiler = Profiler(run_dir="profile", role="actor")   # or LINEPROFILER_ROLE=actor
+profiler = Profiler(run_dir="profile", role="actor")   # or PHASELOG_ROLE=actor
 with profiler:
     for _ in range(steps):
         with profiler.phase("iteration"), profiler.phase("self_play"):
@@ -29,16 +29,16 @@ with profiler.phase("checkpoint", io=True):            # exact byte attribution
     save(model)
 ```
 
-Naming a `run_dir` turns the profiler on: nobody passes one and means "write nothing there". Without one, the switch is `LINEPROFILER_PROFILE=1` in the environment, which is what lets library code carry `accounting.phase(...)` calls permanently at no cost. An explicit `enabled=` beats both, in either direction, so a launcher can turn a run off without editing the call — and a profiler that ends up disabled with phases entered on it says so on `close()` rather than leaving an empty directory to be discovered later.
+Naming a `run_dir` turns the profiler on: nobody passes one and means "write nothing there". Without one, the switch is `PHASELOG_PROFILE=1` in the environment, which is what lets library code carry `accounting.phase(...)` calls permanently at no cost. An explicit `enabled=` beats both, in either direction, so a launcher can turn a run off without editing the call — and a profiler that ends up disabled with phases entered on it says so on `close()` rather than leaving an empty directory to be discovered later.
 
 ```
-lineprofiler report profile/
-lineprofiler report profile/ --no-samples     # phases only; skips the resource blocks
-lineprofiler report profile/ --json           # the same run as data, for CI gates and diffs
-lineprofiler compare profile_a/ profile_b/ [--json]
+phaselog report profile/
+phaselog report profile/ --no-samples     # phases only; skips the resource blocks
+phaselog report profile/ --json           # the same run as data, for CI gates and diffs
+phaselog compare profile_a/ profile_b/ [--json]
 ```
 
-Every command also works as `python -m lineprofiler report profile/`, which needs only the package to be importable — no console script on `PATH`. From inside the script that produced the run, `write_report("profile", "report.html", format="html")` writes the same report to a file directly; `write_trace` does the same for the timeline. Both take the CLI's formats.
+Every command also works as `python -m phaselog report profile/`, which needs only the package to be importable — no console script on `PATH`. From inside the script that produced the run, `write_report("profile", "report.html", format="html")` writes the same report to a file directly; `write_trace` does the same for the timeline. Both take the CLI's formats.
 
 The report is grouped by role, because sixteen actors always dominate a single global
 percentage whether or not they are the bottleneck:
@@ -96,8 +96,8 @@ the actor session, the inference server — for one phase.
 Pass `install=True` and use the module-level functions instead:
 
 ```python
-from lineprofiler import accounting
-from lineprofiler.accounting import Profiler
+from phaselog import accounting
+from phaselog.accounting import Profiler
 
 # once, wherever you set the run up
 profiler = Profiler(run_dir="profile", role="actor", install=True)
@@ -190,7 +190,7 @@ profiler = Profiler(run_dir="profile", role="actor", trace=True)
 ```
 
 ```
-lineprofiler trace profile/ -o trace.html
+phaselog trace profile/ -o trace.html
 ```
 
 Off by default: the phase tree is bounded by design, and a timeline is not. When on, spans go
@@ -210,7 +210,7 @@ profiler.wait_on("batch", batch.id)
 
 Both are no-ops when tracing is off, so they are safe to leave in permanently.
 
-With no `phase()` calls at all, `LINEPROFILER_TRACE=auto` derives spans from function calls in
+With no `phase()` calls at all, `PHASELOG_TRACE=auto` derives spans from function calls in
 your project (3.12+). It cannot measure CPU time — the page marks those spans *unknown* rather
 than claiming they never waited — so treat it as a way to find where the phases belong.
 

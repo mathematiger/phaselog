@@ -1,0 +1,47 @@
+name: Feature request
+description: Something the tool should do, or should say, that it does not.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Two things make a request much easier to say yes to: the run that made you want it, and whether it can be built without a required dependency. Zero required dependencies is a deliberate constraint, not an oversight — optional integrations go through a capability check and degrade to a disabled block rather than an error.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The question you could not answer
+      description: Describe the run and what you were trying to find out, before describing the feature. Several existing features look nothing like the request that produced them.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like it to do
+      description: An imagined command line, output block or API call is worth more than a paragraph.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where it would live
+      options:
+        - The text report
+        - The HTML report or timeline
+        - The CLI
+        - The accounting API
+        - The line profiler
+        - An export to another tool
+        - Not sure
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you did instead
+      description: The workaround, or the other tool you reached for. If another profiler already does this well, say which — the honest answer is sometimes "use that one", and the comparison doc should then say so.
+    validations:
+      required: false

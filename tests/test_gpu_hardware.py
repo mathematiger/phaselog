@@ -19,15 +19,15 @@ from pathlib import Path
 
 import pytest
 
-from lineprofiler.accounting import Profiler, merge_run, render
-from lineprofiler.accounting.capabilities import (
+from phaselog.accounting import Profiler, merge_run, render
+from phaselog.accounting.capabilities import (
     cuda_is_available,
     cuda_synchronize,
     nvml_module,
     nvtx_range_functions,
     record_function_factory,
 )
-from lineprofiler.accounting.sampler import ResourceSampler
+from phaselog.accounting.sampler import ResourceSampler
 
 requires_nvml = pytest.mark.skipif(nvml_module() is None, reason="NVML unavailable")
 requires_cuda = pytest.mark.skipif(not cuda_is_available(), reason="no CUDA device")
@@ -307,7 +307,7 @@ def test_a_sync_phase_leaves_a_cpu_only_process_without_a_context() -> None:
     """
     probe = (
         "import tempfile, torch;"
-        "from lineprofiler.accounting import Profiler;"
+        "from phaselog.accounting import Profiler;"
         "d = tempfile.mkdtemp();"
         "p = Profiler(run_dir=d, enabled=True, snapshot_interval_s=None,"
         " sample_interval_s=None);"

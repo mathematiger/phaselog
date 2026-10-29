@@ -1,4 +1,4 @@
-"""Exhaustive tests for the lineprofiler package.
+"""Exhaustive tests for the phaselog package.
 
 The sample functions below live inside this file, which is itself inside the
 folder passed as ``project_folder``, so they are picked up by the profiler.
@@ -12,16 +12,17 @@ import io
 import sys
 import threading
 import time
+from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Literal, cast
 
 import pytest
 
-from lineprofiler import FunctionStats, LineProfiler, LineStats, start_profiling, stop_profiling
-from lineprofiler import profiler as profiler_module
-from lineprofiler.config import ENV_ENABLED, ProfilerConfig, get_config
-from lineprofiler.profiler import _MONITORING, _TOOL_ID, _qualname_of
+from phaselog import FunctionStats, LineProfiler, LineStats, start_profiling, stop_profiling
+from phaselog import profiler as profiler_module
+from phaselog.config import ENV_ENABLED, ProfilerConfig, get_config
+from phaselog.profiler import _MONITORING, _TOOL_ID, _qualname_of
 
 THIS_DIR = str(Path(__file__).resolve().parent)
 
@@ -370,7 +371,7 @@ def test_autodetect_project_folder_is_repo_root() -> None:
 
     assert detected.is_dir(), "the fallback must never be a file path"
     if (Path(THIS_DIR).parent / ".git").exists():
-        assert (detected / "lineprofiler").is_dir()
+        assert (detected / "phaselog").is_dir()
     else:
         assert detected == Path(THIS_DIR).resolve()
 
@@ -984,11 +985,11 @@ def test_start_profiling_enabled_false_wins_over_the_environment(
     assert profiler.get_stats() == {}
 
 
-def test_lineprofiler_run_profiles_a_script_without_editing_it(
+def test_phaselog_run_profiles_a_script_without_editing_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """The ``kernprof`` equivalent: a script, no decorators, its own exit status kept."""
-    from lineprofiler.accounting.cli import main
+    from phaselog.accounting.cli import main
 
     (tmp_path / ".git").mkdir()
     script = tmp_path / "job.py"
@@ -1045,7 +1046,7 @@ def test_get_config_falsy_values_are_disabled(monkeypatch: pytest.MonkeyPatch) -
 def test_get_config_reads_pyproject_table(tmp_path: Path) -> None:
     (tmp_path / ".git").mkdir()
     (tmp_path / "pyproject.toml").write_text(
-        '[tool.lineprofiler]\ninclude = ["src/**"]\nexclude = ["src/generated/**"]\n'
+        '[tool.phaselog]\ninclude = ["src/**"]\nexclude = ["src/generated/**"]\n'
         'functions = ["*.train_step"]\n',
         encoding="utf-8",
     )
@@ -1072,12 +1073,165 @@ def test_get_config_malformed_pyproject_degrades_to_defaults(tmp_path: Path) -> 
 def test_get_config_is_cached_per_project_root(tmp_path: Path) -> None:
     (tmp_path / ".git").mkdir()
     (tmp_path / "pyproject.toml").write_text(
-        '[tool.lineprofiler]\ninclude = ["a"]\n', encoding="utf-8",
+        '[tool.phaselog]\ninclude = ["a"]\n', encoding="utf-8",
     )
     first = get_config(tmp_path)
     (tmp_path / "pyproject.toml").write_text(
-        '[tool.lineprofiler]\ninclude = ["b"]\n', encoding="utf-8",
+        '[tool.phaselog]\ninclude = ["b"]\n', encoding="utf-8",
     )
     second = get_config(tmp_path)
     assert second is first
     assert second.include == ("a",)
+
+
+# --------------------------------------------------------------------------- #
+# Attribution across frames the project does not own
+# --------------------------------------------------------------------------- #
+def _outside_module(tmp_path: Path, name: str, source: str) -> SimpleNamespace:
+    """Import ``source`` from a file outside the project folder, so it is never admitted."""
+    import importlib.util
+
+    path = tmp_path / f"{name}.py"
+    path.write_text(source, encoding="utf-8")
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module  # type: ignore[return-value]
+
+
+def ticker() -> Iterator[int]:
+    yield 1
+    yield 2
+
+
+def test_a_generators_yield_line_is_not_billed_the_consumers_time(tmp_path: Path) -> None:
+    """A suspended generator's yield line must not absorb what the consumer does next.
+
+    ``sys.settrace``'s ``return`` event fires on yield; ``PY_YIELD`` is its monitoring
+    counterpart and was not registered, so a generator pulled from slow non-project code
+    reported the consumer's whole between-pulls time on its own yield line.
+    """
+    consumer = _outside_module(
+        tmp_path,
+        "slow_consumer",
+        "import time\n"
+        "def drain(gen):\n"
+        "    for _ in gen:\n"
+        "        time.sleep(0.06)\n",
+    )
+    profiler = LineProfiler(project_folder=THIS_DIR)
+    with profiler:
+        consumer.drain(ticker())
+
+    stats = stats_for(profiler, "ticker")
+    yield_time = sum(line.total_time for line in stats.line_stats.values())
+    assert yield_time < 0.03, (
+        f"the generator was billed {yield_time:.3f}s of the consumer's sleeps"
+    )
+
+
+def test_time_in_a_multiframe_library_callee_lands_on_the_calling_line(
+    tmp_path: Path,
+) -> None:
+    """A non-project callee's time belongs to the project line that called it.
+
+    ``PY_RETURN`` fired for *every* Python frame: the first inner return of a non-project
+    callee closed the caller's armed line early, so everything the callee did after that
+    return vanished. Nearly every site-packages call has more than one Python frame.
+    """
+    library = _outside_module(
+        tmp_path,
+        "slow_library",
+        "import time\n"
+        "def _quick():\n"
+        "    return 1\n"
+        "def slow_multiframe():\n"
+        "    _quick()\n"
+        "    time.sleep(0.06)\n"
+        "    return 1\n",
+    )
+
+    def caller() -> None:
+        library.slow_multiframe()  # the callee's whole duration belongs here
+
+    profiler = LineProfiler(project_folder=THIS_DIR)
+    with profiler:
+        caller()
+
+    stats = stats_for(profiler, "caller")
+    call_time = sum(line.total_time for line in stats.line_stats.values())
+    assert call_time > 0.05, (
+        f"the calling line was billed {call_time:.3f}s of a 0.06s library call"
+    )
+
+
+@pytest.mark.skipif(_MONITORING is None, reason="needs sys.monitoring")
+@pytest.mark.parametrize("backend", ["monitoring"])
+def test_a_refused_enter_leaves_the_instance_reusable(backend: str) -> None:
+    """A ``with`` whose ``__enter__`` raised never runs ``__exit__``, so the refusal must
+    not leave ``_enabled`` set — that made every later use of the instance raise "already
+    active", a wrong diagnosis for a profiler that never started."""
+    outer_profiler = LineProfiler(project_folder=THIS_DIR, backend="monitoring")
+    inner_profiler = LineProfiler(project_folder=THIS_DIR, backend="monitoring")
+    with (
+        outer_profiler,
+        pytest.raises(RuntimeError, match="another tool holds"),
+        inner_profiler,
+    ):
+        pass  # pragma: no cover - never reached
+    with inner_profiler:
+        add(1, 2)
+    assert stats_for(inner_profiler, "add").total_time >= 0
+
+
+@pytest.mark.skipif(_MONITORING is None, reason="needs sys.monitoring")
+def test_start_profiling_degrades_instead_of_crashing_when_the_slot_is_held(
+    mode: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The ambient API promises to never crash the host; a held tool slot broke that.
+
+    Only the builtin ``monitoring`` backend contends for the slot: ``line_profiler`` shares
+    it with the holder, and ``settrace`` does not use it.
+    """
+    if mode != "builtin:monitoring":
+        pytest.skip("only the builtin monitoring backend contends for the profiler slot")
+    monkeypatch.setenv(ENV_ENABLED, "1")
+    with (
+        LineProfiler(project_folder=THIS_DIR, backend="monitoring"),
+        pytest.warns(RuntimeWarning, match="another tool holds"),
+    ):
+        returned = start_profiling(project_folder=THIS_DIR)
+    assert returned is not None
+    assert stop_profiling(print_stats=False) is None
+
+
+@pytest.mark.skipif(_MONITORING is None, reason="needs sys.monitoring")
+@pytest.mark.parametrize("backend", ["monitoring"])
+def test_stopping_after_a_manual_exit_is_harmless(
+    backend: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``start_profiling`` hands the profiler back, so a manual ``__exit__`` is reachable;
+    ``stop_profiling`` afterwards used to raise ``ValueError: tool 2 is not in use``."""
+    monkeypatch.setenv(ENV_ENABLED, "1")
+    profiler = start_profiling(project_folder=THIS_DIR)
+    profiler.__exit__(None, None, None)
+    stop_profiling(print_stats=False)
+
+
+def test_pseudo_filenames_are_never_admitted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``exec``'d code reports ``<string>`` as its file; resolving that against a cwd under
+    the project folder used to admit it — third-party ``exec``'d code included — and print
+    rows with an empty source column."""
+    monkeypatch.chdir(THIS_DIR)
+    profiler = LineProfiler(project_folder=THIS_DIR)
+    with profiler:
+        exec("def execd():\n    return sum(range(100))\nexecd()")  # noqa: S102
+
+    recorded = {key[0] for key in profiler.get_stats()}
+    assert "<string>" not in recorded

@@ -9,7 +9,8 @@ RAM  peak RSS           677.1 MB                    225.7 MB
   (machine capacity was not recorded for this run)
   per-proc figures are over 3 process(es) (actor x2, learner x1)
   heaviest process held 476.8 MB RSS against a 225.7 MB mean
-  (no CPU readings in this run's samples; install psutil to record them)
+  (no CPU reading landed: cpu% needs a second sampler reading and the run
+   ended before one. The rows above are measured and unaffected.)
 
 ACTOR  (2 processes, imbalance 1.11)
   % of phase wall time at the first branching level, summed over 2 processes

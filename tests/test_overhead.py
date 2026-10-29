@@ -20,9 +20,9 @@ from time import perf_counter_ns
 
 import pytest
 
-from lineprofiler import accounting
-from lineprofiler.accounting import Profiler
-from lineprofiler.accounting.capabilities import cuda_synchronize
+from phaselog import accounting
+from phaselog.accounting import Profiler
+from phaselog.accounting.capabilities import cuda_synchronize
 
 
 def _a_tracer_is_active() -> bool:

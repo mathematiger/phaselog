@@ -14,9 +14,9 @@ The failure this catches is specific and it is not cosmetic. A number without it
 Not a fixture. Fixtures are built to have the shape the test wants and will not show you the overflow, the collision or the missing caveat.
 
 ```
-poetry run python -m lineprofiler.accounting.cli report RUN -o r.txt
-poetry run python -m lineprofiler.accounting.cli report RUN --format html -o r.html
-poetry run python -m lineprofiler.accounting.cli trace  RUN -o t.html
+poetry run python -m phaselog.accounting.cli report RUN -o r.txt
+poetry run python -m phaselog.accounting.cli report RUN --format html -o r.html
+poetry run python -m phaselog.accounting.cli trace  RUN -o t.html
 ```
 
 Read all three. They fail differently: the text report fails on column width, the HTML report on unstated denominators, the timeline on things discoverable only by hovering.

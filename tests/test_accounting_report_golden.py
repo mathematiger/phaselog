@@ -4,7 +4,7 @@ The run is built from fixed numbers written straight to disk rather than from re
 so the output is byte-for-byte deterministic and any change to the layout shows up as a
 diff. Regenerate deliberately with::
 
-    LINEPROFILER_UPDATE_GOLDEN=1 pytest tests/test_accounting_report_golden.py
+    PHASELOG_UPDATE_GOLDEN=1 pytest tests/test_accounting_report_golden.py
 """
 
 from __future__ import annotations
@@ -13,9 +13,9 @@ import json
 import os
 from pathlib import Path
 
-from lineprofiler.accounting import merge_run, render
-from lineprofiler.accounting.compare import render_comparison
-from lineprofiler.accounting.histogram import bucket_index
+from phaselog.accounting import merge_run, render
+from phaselog.accounting.compare import render_comparison
+from phaselog.accounting.histogram import bucket_index
 
 GOLDEN_DIR = Path(__file__).parent / "golden"
 
@@ -119,11 +119,11 @@ def _build_fixed_run(run_dir: Path) -> None:
 def _check_golden(name: str, actual: str) -> None:
     """Compare against the stored golden file, or rewrite it when asked to."""
     path = GOLDEN_DIR / name
-    if os.environ.get("LINEPROFILER_UPDATE_GOLDEN"):
+    if os.environ.get("PHASELOG_UPDATE_GOLDEN"):
         GOLDEN_DIR.mkdir(parents=True, exist_ok=True)
         path.write_text(actual, encoding="utf-8")
     assert path.exists(), (
-        f"missing golden file {path}; regenerate with LINEPROFILER_UPDATE_GOLDEN=1"
+        f"missing golden file {path}; regenerate with PHASELOG_UPDATE_GOLDEN=1"
     )
     assert actual == path.read_text(encoding="utf-8")
 

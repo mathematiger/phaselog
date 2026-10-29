@@ -8,7 +8,7 @@ Both tools also come as a module-level entry/exit pair — the alternative to a 
 dropping either one into a function you do not want to restructure:
 
 ```python
-from lineprofiler.accounting import start, stop
+from phaselog.accounting import start, stop
 
 start(role="actor")        # line 1: top of the region
 ...                         # existing code, unmodified
@@ -16,7 +16,7 @@ stop()                      # line 2: bottom of the region
 ```
 
 ```python
-from lineprofiler import start_profiling, stop_profiling
+from phaselog import start_profiling, stop_profiling
 
 start_profiling()          # line 1
 ...                         # existing code, unmodified
@@ -34,10 +34,10 @@ committed permanently rather than added and removed per debugging session. Turn 
 with:
 
 ```
-LINEPROFILER_ENABLED=1   # master switch for start_profiling()/stop_profiling()
+PHASELOG_ENABLED=1   # master switch for start_profiling()/stop_profiling()
 ```
 
-`accounting.start()`/`stop()` use `accounting`'s own existing `LINEPROFILER_PROFILE` switch
+`accounting.start()`/`stop()` use `accounting`'s own existing `PHASELOG_PROFILE` switch
 (see below) — the two tools' switches are independent, matching the fact that they share
 nothing but the distribution.
 
@@ -45,7 +45,7 @@ To scope `start_profiling()` to part of the codebase without touching a single c
 an optional table to `pyproject.toml`:
 
 ```toml
-[tool.lineprofiler]
+[tool.phaselog]
 include = ["src/mypkg/**"]        # only these paths are traced (glob, relative to the project root)
 exclude = ["src/mypkg/generated/**"]  # exclude wins over include
 functions = ["*.train_step", "*.forward"]  # only these function/method names (glob over __qualname__)
@@ -82,10 +82,10 @@ block of the report they feed, and construction never raises.
 | `viztracer` | `viztracer` | the `backend="viztracer"` window |
 
 ```
-pip install with-line-profiler[resources]   # psutil  -> memory + I/O blocks
-pip install with-line-profiler[gpu]         # nvidia-ml-py -> GPU utilisation block
-pip install with-line-profiler[viztracer]   # viztracer backend
-pip install with-line-profiler[all]         # psutil + nvidia-ml-py + viztracer
+pip install phaselog[resources]   # psutil  -> memory + I/O blocks
+pip install phaselog[gpu]         # nvidia-ml-py -> GPU utilisation block
+pip install phaselog[viztracer]   # viztracer backend
+pip install phaselog[all]         # psutil + nvidia-ml-py + viztracer
 pip install torch                           # separately; CUDA memory, sync=True, annotate=True, backend="torch"
 ```
 

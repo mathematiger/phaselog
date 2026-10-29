@@ -33,13 +33,13 @@ State which surface you picked and why, in one line, before you start.
 
 ## Step 2 — Break it with a real run
 
-**The evidence must come from running the thing, not from reading it.** A defect argued from source is a hypothesis; reviewers of this project have been wrong about the source before (see the `WITHLINEPROFILER_GAPS.md` gaps #3 and #6, where two "library gaps" turned out to be caller bugs). A defect demonstrated by an artifact on disk is a fact.
+**The evidence must come from running the thing, not from reading it.** A defect argued from source is a hypothesis; reviewers of this project have been wrong about the source before (gaps #3 and #6 of the old instrumentation-gaps backlog, now in git history, were two "library gaps" that turned out to be caller bugs). A defect demonstrated by an artifact on disk is a fact.
 
 Write a probe script into the scratchpad — never into `tests/` yet, and never into the repo. Run a real `Profiler` with `enabled=True`, render the real artifact, then assert against what landed on disk.
 
 Two traps that will cost you an iteration each:
 
-- **`enabled=True` is required.** Profiling is opt-in; without it (or `LINEPROFILER_PROFILE`) every method is a no-op, `close()` succeeds, and **no files are written at all**. A probe that forgets this reports a spectacular-looking "silently writes nothing" bug that is just the documented default.
+- **`enabled=True` is required.** Profiling is opt-in; without it (or `PHASELOG_PROFILE`) every method is a no-op, `close()` succeeds, and **no files are written at all**. A probe that forgets this reports a spectacular-looking "silently writes nothing" bug that is just the documented default.
 - **`run_dir` resolves against the cwd** at construction. Run the probe from the repo root with an absolute `run_dir`, or the artifacts land somewhere you are not looking and you will report a phantom.
 
 Also: do not pipe a render through `head`. `cli trace` streams progress and then writes; `head` closes the pipe and the write never happens, which looks exactly like "the renderer produced nothing".
@@ -80,8 +80,8 @@ Run, in this order, and paste the real output — never assert a check passed wi
 
 ```
 poetry run pytest tests/ -q          # whole suite, not just your file
-poetry run mypy lineprofiler tests   # strict
-poetry run ruff check lineprofiler tests
+poetry run mypy phaselog tests   # strict
+poetry run ruff check phaselog tests
 ```
 
 If the change can reach a report, source or trace page, **render a real page and read it** — `CLAUDE.md` §5b makes this binding, and the `report-readability` skill is the checklist for that read. A passing suite says well-formed; it does not say readable.

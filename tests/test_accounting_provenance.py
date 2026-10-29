@@ -16,12 +16,12 @@ from pathlib import Path
 
 import pytest
 
-from lineprofiler.accounting import Profiler, merge_run, render
-from lineprofiler.accounting.cli import main as cli_main
-from lineprofiler.accounting.htmltrace import _spans_to_draw, render_trace_html
-from lineprofiler.accounting.provenance import describe_source, format_source, source_of
-from lineprofiler.accounting.snapshot import new_run_id
-from lineprofiler.accounting.tracealign import PlacedSpan, align_run, lifecycle_segments
+from phaselog.accounting import Profiler, merge_run, render
+from phaselog.accounting.cli import main as cli_main
+from phaselog.accounting.htmltrace import _spans_to_draw, render_trace_html
+from phaselog.accounting.provenance import describe_source, format_source, source_of
+from phaselog.accounting.snapshot import new_run_id
+from phaselog.accounting.tracealign import PlacedSpan, align_run, lifecycle_segments
 
 # ── reading the revision ────────────────────────────────────────────────────
 
@@ -384,7 +384,7 @@ def test_a_run_with_no_lifecycle_marks_has_no_lifecycle_block(tmp_path: Path) ->
 
 def test_the_ambient_lifecycle_functions_no_op_without_a_profiler() -> None:
     """Safe to leave in library code that is sometimes profiled and sometimes not."""
-    from lineprofiler.accounting import trace_begin, trace_end, trace_mark
+    from phaselog.accounting import trace_begin, trace_end, trace_mark
 
     trace_begin("inference", 1)
     trace_mark("inference", 1, "admitted")

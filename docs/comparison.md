@@ -5,7 +5,7 @@ to help you pick the right one, including when that is not this package.
 
 ## At a glance
 
-| | `lineprofiler` (this) | [`line_profiler`](https://github.com/pyutils/line_profiler) | [py-spy](https://github.com/benfred/py-spy) | [Scalene](https://github.com/plasma-umass/scalene) | [VizTracer](https://github.com/gaogaotiantian/viztracer) |
+| | `phaselog` (this) | [`line_profiler`](https://github.com/pyutils/line_profiler) | [py-spy](https://github.com/benfred/py-spy) | [Scalene](https://github.com/plasma-umass/scalene) | [VizTracer](https://github.com/gaogaotiantian/viztracer) |
 |---|---|---|---|---|---|
 | **Granularity** | per line | per line | per line, sampled | per line, and per function | per function call, on a timeline |
 | **Marking what to profile** | nothing — every function under your project folder while active | a `@profile` decorator on each function (`kernprof` injects it) | nothing | nothing | nothing |
@@ -14,7 +14,7 @@ to help you pick the right one, including when that is not this package.
 | **Overhead** | ~240 ns per line event — the same engine, so the same cost | ~240 ns per line event | very low | low to moderate | roughly 2–4x |
 | **Attach to an already-running process** | no | no | **yes** | no | no |
 | **Memory / GPU** | no (but see the accounting layer) | no | no | **yes, both** | no |
-| **Multi-process aggregation** | **yes, via `lineprofiler.accounting`** | no | per process | limited | per-process traces |
+| **Multi-process aggregation** | **yes, via `phaselog.accounting`** | no | per process | limited | per-process traces |
 | **Output** | terminal tables, self-contained HTML | terminal table | flamegraph SVG, speedscope, live TUI | terminal and a web GUI | Perfetto timeline |
 
 ## When to use which
@@ -84,7 +84,7 @@ is all it gets.
 
 ## Trace timeline vs VizTracer / Perfetto / nsys
 
-`lineprofiler trace` overlaps their territory, so it is worth being explicit about where it
+`phaselog trace` overlaps their territory, so it is worth being explicit about where it
 stops.
 
 **Use the trace timeline when** the question is *which worker was idle, and who was it waiting
@@ -95,7 +95,9 @@ boundaries. It records aggregates by default and spans only when asked, so it ca
 **Use VizTracer or Perfetto when** you need every call in one process at full fidelity, a
 flame graph over call stacks, or a UI with real search. VizTracer traces everything by
 default; that is its strength and the reason it is not something you leave running for twelve
-hours.
+hours. The two are not either/or: `phaselog trace <dir> --format chrome` exports the
+aligned spans and arrows as Chrome trace events, so the run this package recorded can be
+opened in Perfetto when its own page runs out of answers.
 
 **Use nsys or `torch.profiler` when** the answer is on the GPU — kernel timings, memory
 transfers, stream overlap. This package deliberately does not reimplement those:

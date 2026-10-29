@@ -12,3 +12,7 @@ build/
 .coverage
 coverage.xml
 htmlcov/
+
+# local Claude Code state (agent worktrees, per-machine permissions)
+.claude/worktrees/
+.claude/settings.local.json

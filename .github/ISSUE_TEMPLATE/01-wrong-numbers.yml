@@ -1,0 +1,83 @@
+name: A number looks wrong
+description: A reported time, share, count or conclusion does not match reality. This is the failure class the project cares most about.
+labels: ["wrong-numbers"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This form exists because a wrong number needs different evidence from a crash: there is no traceback, and the only thing that establishes the defect is **what you expected and why**. Take the extra minute — a report of "the numbers look off" cannot be acted on, and a report of "this phase wraps a 0.5 s sleep and is reported as 0.2 ms" usually can be fixed the same day.
+
+        If you are not sure whether this is a bug or a documented limitation, [HARDENING.md](https://github.com/mathematiger/phaselog/blob/main/HARDENING.md) lists what has been probed, including entries marked *not-a-bug* with the reasoning.
+
+  - type: dropdown
+    id: tool
+    attributes:
+      label: Which tool
+      options:
+        - The accounting layer (phaselog.accounting)
+        - The line profiler (phaselog.LineProfiler)
+        - The CLI (phaselog report / compare / trace)
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: number
+    attributes:
+      label: The number, quoted
+      description: Paste the line or block of output that is wrong, not a description of it.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead, and how you know
+      description: A `time.perf_counter()` around the same region, a wall-clock stopwatch, another profiler, arithmetic that does not add up — anything that makes the reported figure impossible rather than merely surprising.
+    validations:
+      required: true
+
+  - type: textarea
+    id: instrumentation
+    attributes:
+      label: The instrumentation that produced it
+      description: The smallest snippet showing how the profiler was constructed and where the phases (or the `with` block) sit. If a `phase()` was declared `sample=`, `sync=` or `async_work=`, include that — those change what the numbers mean.
+      render: python
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: phaselog version
+      placeholder: "0.9.0"
+    validations:
+      required: true
+
+  - type: input
+    id: python
+    attributes:
+      label: Python version and OS
+      description: The line profiler uses `sys.monitoring` on 3.12+ and `sys.settrace` below, which are different code paths.
+      placeholder: "3.12.3, Linux (Rocky 8)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: shape
+    attributes:
+      label: Run shape
+      description: Number of processes and nodes, launcher (`multiprocessing` start method, Slurm, torchrun, none), and whether the run finished or was killed. Cross-process and cross-host attribution has failure modes a single process never reaches.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: artifacts
+    attributes:
+      label: Artifacts
+      description: Attach what you can. A run directory zipped is by far the most useful thing you can send; phase names and file paths come from your code, so redact first if that matters.
+      options:
+        - label: I can attach the run directory (or a reduced one that still shows the problem)
+        - label: I can attach the rendered HTML page
+        - label: I can share a script that reproduces it

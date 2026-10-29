@@ -18,14 +18,14 @@ from typing import Any
 import pytest
 from test_accounting_report_golden import _build_fixed_run
 
-from lineprofiler import LineProfiler
-from lineprofiler.accounting import Profiler, merge_run
-from lineprofiler.accounting.cli import main
-from lineprofiler.accounting.htmlreport import flame_cells, render_html, write_html
-from lineprofiler.accounting.phasetree import PhaseStats, PhaseTree
-from lineprofiler.accounting.report import report_as_dict
-from lineprofiler.accounting.sampler import Sample
-from lineprofiler.htmldoc import escape
+from phaselog import LineProfiler
+from phaselog.accounting import Profiler, merge_run
+from phaselog.accounting.cli import main
+from phaselog.accounting.htmlreport import flame_cells, render_html, write_html
+from phaselog.accounting.phasetree import PhaseStats, PhaseTree
+from phaselog.accounting.report import report_as_dict
+from phaselog.accounting.sampler import Sample
+from phaselog.htmldoc import escape
 
 THIS_DIR = str(Path(__file__).resolve().parent)
 
@@ -45,7 +45,7 @@ def holds_markup() -> str:
 def _embedded_data(html: str) -> dict[str, Any]:
     """Pull the JSON payload back out of the page, the way a reader or script would."""
     match = re.search(
-        r'<script type="application/json" id="lineprofiler-data">(.*?)</script>',
+        r'<script type="application/json" id="phaselog-data">(.*?)</script>',
         html,
         re.DOTALL,
     )

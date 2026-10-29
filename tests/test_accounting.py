@@ -14,11 +14,11 @@ from pathlib import Path
 
 import pytest
 
-from lineprofiler import accounting
-from lineprofiler.accounting import DurationHistogram, PhaseStats, Profiler, merge_run
-from lineprofiler.accounting.histogram import BUCKET_COUNT, bucket_index, bucket_lower_ns
-from lineprofiler.accounting.phasetree import PhaseTree, merge_trees
-from lineprofiler.accounting.report import render, report_as_dict
+from phaselog import accounting
+from phaselog.accounting import DurationHistogram, PhaseStats, Profiler, merge_run
+from phaselog.accounting.histogram import BUCKET_COUNT, bucket_index, bucket_lower_ns
+from phaselog.accounting.phasetree import PhaseTree, merge_trees
+from phaselog.accounting.report import render, report_as_dict
 
 # ── histogram ───────────────────────────────────────────────────────────────
 
@@ -346,7 +346,7 @@ def test_a_disabled_profiler_that_was_used_warns_on_close(tmp_path: Path) -> Non
     message = str(caught[0].message)
     assert str(run_dir) in message, "the caller must be told which directory stayed empty"
     assert "enabled=True" in message
-    assert "LINEPROFILER_PROFILE=1" in message
+    assert "PHASELOG_PROFILE=1" in message
 
 
 def test_a_disabled_profiler_that_was_never_used_closes_silently(
@@ -372,25 +372,25 @@ def test_closing_a_disabled_profiler_twice_warns_once(
 
 
 def test_environment_variable_is_read_once(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setenv("LINEPROFILER_PROFILE", "1")
+    monkeypatch.setenv("PHASELOG_PROFILE", "1")
     profiler = Profiler(
         run_dir=tmp_path, snapshot_interval_s=None, sample_interval_s=None,
     )
     assert profiler.enabled is True
 
-    monkeypatch.delenv("LINEPROFILER_PROFILE")
+    monkeypatch.delenv("PHASELOG_PROFILE")
     assert profiler.enabled is True, "enabled must not be re-read per call"
     profiler.close()
 
 
 def test_explicit_enabled_overrides_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("LINEPROFILER_PROFILE", "1")
+    monkeypatch.setenv("PHASELOG_PROFILE", "1")
     assert Profiler(enabled=False).enabled is False
 
 
 def test_falsy_environment_values_keep_it_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
     for value in ("", "0", "false"):
-        monkeypatch.setenv("LINEPROFILER_PROFILE", value)
+        monkeypatch.setenv("PHASELOG_PROFILE", value)
         assert Profiler().enabled is False
 
 
@@ -550,7 +550,7 @@ def test_unreadable_worker_files_are_not_called_an_empty_run(tmp_path: Path) -> 
 
 _SIGTERM_SCRIPT = """
     import os, signal, time
-    from lineprofiler.accounting import Profiler
+    from phaselog.accounting import Profiler
 
     profiler = Profiler(run_dir={run_dir!r}, enabled=True, snapshot_interval_s=0.2)
     with profiler.phase("work"):
@@ -746,7 +746,7 @@ def test_an_explicit_run_dir_enables_the_profiler(
 ) -> None:
     """Naming a directory is a statement of intent. Asserting on the worker file rather than
     on the flag, because the flag is not what the caller was promised — the file is."""
-    monkeypatch.delenv("LINEPROFILER_PROFILE", raising=False)
+    monkeypatch.delenv("PHASELOG_PROFILE", raising=False)
     profiler = accounting.start(
         run_dir=tmp_path, role="actor", snapshot_interval_s=None, sample_interval_s=None,
     )
@@ -765,8 +765,8 @@ def test_an_explicit_run_dir_enables_the_profiler(
 def test_start_without_a_run_dir_stays_disabled_without_the_env_var(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("LINEPROFILER_PROFILE", raising=False)
-    monkeypatch.delenv("LINEPROFILER_RUN_DIR", raising=False)
+    monkeypatch.delenv("PHASELOG_PROFILE", raising=False)
+    monkeypatch.delenv("PHASELOG_RUN_DIR", raising=False)
     profiler = accounting.start(role="actor")
     try:
         assert profiler.enabled is False
@@ -785,12 +785,12 @@ def test_an_inherited_run_dir_does_not_enable_a_child(
 ) -> None:
     """The implication is keyed on the constructor argument, never on the resolved path.
 
-    ``_propagate_to_children`` exports ``LINEPROFILER_RUN_DIR`` alongside the switch, so a
+    ``_propagate_to_children`` exports ``PHASELOG_RUN_DIR`` alongside the switch, so a
     profiler that read the resolved directory would enable itself in a ``spawn`` child of a
     profiled parent from the inherited variable alone.
     """
-    monkeypatch.delenv("LINEPROFILER_PROFILE", raising=False)
-    monkeypatch.setenv("LINEPROFILER_RUN_DIR", str(tmp_path))
+    monkeypatch.delenv("PHASELOG_PROFILE", raising=False)
+    monkeypatch.setenv("PHASELOG_RUN_DIR", str(tmp_path))
 
     profiler = Profiler()
     assert profiler.enabled is False

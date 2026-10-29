@@ -13,10 +13,10 @@ from pathlib import Path
 
 import pytest
 
-from lineprofiler.accounting import Profiler
-from lineprofiler.accounting.autotrace import AutoTracer
-from lineprofiler.accounting.snapshot import merge_run
-from lineprofiler.accounting.trace import FLAG_AUTO, TraceBuffer
+from phaselog.accounting import Profiler
+from phaselog.accounting.autotrace import AutoTracer
+from phaselog.accounting.snapshot import merge_run
+from phaselog.accounting.trace import FLAG_AUTO, TraceBuffer
 
 pytestmark = pytest.mark.skipif(
     sys.version_info < (3, 12),

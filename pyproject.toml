@@ -1,7 +1,7 @@
 [project]
-name = "with_line_profiler"
-version = "0.10.0"
-description = "Line-by-line profiling of a `with` block, timed by line_profiler, plus a low-overhead accounting layer for long multi-process RL training runs. Installed as with-line-profiler, imported as lineprofiler."
+name = "phaselog"
+version = "0.11.0"
+description = "Phase accounting for long multi-process runs, plus line-by-line profiling of a `with` block timed by line_profiler."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
@@ -13,6 +13,9 @@ keywords = [
     "profiling",
     "line-profiler",
     "tracing",
+    "timeline",
+    "perfetto",
+    "chrome-trace",
     "performance",
     "timing",
     "debugging",
@@ -53,28 +56,26 @@ viztracer = ["viztracer>=0.16"]      # the viztracer backend
 all = ["psutil>=5.9", "nvidia-ml-py>=12.0", "viztracer>=0.16"]
 
 [project.scripts]
-lineprofiler = "lineprofiler.accounting.cli:main"
+phaselog = "phaselog.accounting.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/mathematiger/withlineprofiler"
-Repository = "https://github.com/mathematiger/withlineprofiler"
-Issues = "https://github.com/mathematiger/withlineprofiler/issues"
-Changelog = "https://github.com/mathematiger/withlineprofiler/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/mathematiger/phaselog"
+Repository = "https://github.com/mathematiger/phaselog"
+Issues = "https://github.com/mathematiger/phaselog/issues"
+Changelog = "https://github.com/mathematiger/phaselog/blob/main/CHANGELOG.md"
 
 [tool.poetry]
 packages = [
-    { include = "lineprofiler" },
-    # The pip name as an importable module, so `import with_line_profiler` works too. It
-    # re-exports lineprofiler and holds nothing of its own.
-    { include = "with_line_profiler.py", format = ["sdist", "wheel"] },
+    { include = "phaselog" },
 ]
 include = [
-    { path = "lineprofiler/py.typed", format = ["sdist", "wheel"] },
+    { path = "phaselog/py.typed", format = ["sdist", "wheel"] },
     # Tests ship in the sdist so a downstream packager (Spack, EasyBuild, a distro) can
     # validate the build they are about to install. They stay out of the wheel.
     { path = "tests", format = "sdist" },
     { path = "benchmarks", format = "sdist" },
     { path = "CHANGELOG.md", format = "sdist" },
+    { path = "CONTRIBUTING.md", format = "sdist" },
     # The README links out to these, so a downstream packager building from the sdist would
     # otherwise ship documentation whose every link is dead.
     { path = "docs", format = "sdist" },
@@ -113,7 +114,7 @@ addopts = "-m 'not overhead'"
 
 [tool.coverage.run]
 branch = true
-source = ["lineprofiler"]
+source = ["phaselog"]
 
 [tool.coverage.report]
 exclude_also = [

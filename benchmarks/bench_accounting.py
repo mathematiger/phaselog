@@ -12,8 +12,8 @@ from __future__ import annotations
 import tempfile
 import time
 
-from lineprofiler import accounting
-from lineprofiler.accounting import Profiler
+from phaselog import accounting
+from phaselog.accounting import Profiler
 
 ITERATIONS = 200_000
 

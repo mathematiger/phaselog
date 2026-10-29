@@ -1,21 +1,21 @@
-# with-line-profiler
+# phaselog
 
-[![PyPI](https://img.shields.io/pypi/v/with-line-profiler.svg)](https://pypi.org/project/with-line-profiler/)
-[![CI](https://github.com/mathematiger/withlineprofiler/actions/workflows/ci.yml/badge.svg)](https://github.com/mathematiger/withlineprofiler/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/phaselog.svg)](https://pypi.org/project/phaselog/)
+[![CI](https://github.com/mathematiger/phaselog/actions/workflows/ci.yml/badge.svg)](https://github.com/mathematiger/phaselog/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-informational.svg)](LICENSE)
-[![Python](https://img.shields.io/pypi/pyversions/with-line-profiler.svg)](https://pypi.org/project/with-line-profiler/)
+[![Python](https://img.shields.io/pypi/pyversions/phaselog.svg)](https://pypi.org/project/phaselog/)
 
 Two independent profiling tools in one distribution: line-by-line tracing for a region you suspect, and low-overhead phase accounting for a run too long to trace. The line profiler is a `with` block over [`line_profiler`](https://github.com/pyutils/line_profiler)'s C timing engine — the speed of the trusted library, without decorating anything. Python 3.10+, MIT licensed.
 
 ```
-pip install with-line-profiler
+pip install phaselog
 ```
 
-The distribution is `with-line-profiler` and the package it installs is `lineprofiler` — that is the name to import, and the one the rest of this page uses. `import with_line_profiler` works too, and re-exports exactly the same objects, so guessing the pip name is not an error.
+> **Renamed in 0.11.0.** This was `with-line-profiler` (imported as `lineprofiler`) up to 0.10.0 — one underscore from the unrelated [`line_profiler`](https://github.com/pyutils/line_profiler), and named after the smaller of its two halves. No public symbol changed; only the package they live in did. To migrate: `sed -i 's/with_line_profiler/phaselog/g; s/lineprofiler/phaselog/g; s/LINEPROFILER_/PHASELOG_/g' <your files>`. There is deliberately no compatibility alias — see [the changelog](CHANGELOG.md).
 
 ```python
 # example.py
-from lineprofiler import LineProfiler
+from phaselog import LineProfiler
 
 def slow_function():
     total = 0
@@ -52,7 +52,7 @@ The timing is `line_profiler`'s, so the numbers cost what its own users pay: **2
 Already have a script you would rather not edit?
 
 ```
-lineprofiler run train.py --epochs 3        # kernprof, without the decorators
+phaselog run train.py --epochs 3        # kernprof, without the decorators
 ```
 
 Want a picture instead? `profiler.to_html("profile.html")` writes an annotated, heat-coloured source view as a single self-contained file.
@@ -74,13 +74,13 @@ profiler.print_regions()     # one ranked table per region, with a cost per entr
 
 | Tool | What it does | Use it when |
 |---|---|---|
-| **`lineprofiler.LineProfiler`** | Line-by-line tracing for a bounded region, scoped to your project folder. Timed by `line_profiler`. | You have narrowed the problem down and want per-line timings inside it. |
-| **`lineprofiler.accounting`** | Semantic accounting for regions *you* name. Aggregates only — counts, sums, a fixed-bucket histogram — at ~3.9 µs per phase with the default `measure_cpu=True`, or ~2.3 µs without it, across every process in a pipeline. | You are profiling a long, multi-process training run and need to know which phase, which role and which node the time went to. |
+| **`phaselog.LineProfiler`** | Line-by-line tracing for a bounded region, scoped to your project folder. Timed by `line_profiler`. | You have narrowed the problem down and want per-line timings inside it. |
+| **`phaselog.accounting`** | Semantic accounting for regions *you* name. Aggregates only — counts, sums, a fixed-bucket histogram — at ~3.9 µs per phase with the default `measure_cpu=True`, or ~2.3 µs without it, across every process in a pipeline. | You are profiling a long, multi-process training run and need to know which phase, which role and which node the time went to. |
 
 They share nothing but the distribution: `accounting` never imports `LineProfiler`. If you arrived here for a training run, you want the accounting layer — it is the one built to stay enabled for twelve hours.
 
 ```python
-from lineprofiler.accounting import start, stop
+from phaselog.accounting import start, stop
 
 start(role="actor")     # or Profiler(...) / with profiler.phase(...)
 ...
@@ -88,11 +88,11 @@ stop()
 ```
 
 ```
-lineprofiler report profile/                        # the run, as a table
-lineprofiler report profile/ --format html -o r.html # ...or as a page you can share
+phaselog report profile/                        # the run, as a table
+phaselog report profile/ --format html -o r.html # ...or as a page you can share
 ```
 
-Every command also works as `python -m lineprofiler ...`, which is the form to reach for when the console script is not on `PATH` — an unactivated virtualenv, a `pip install --user`, a batch job running `python` by absolute path. From inside the script that produced the run, `accounting.write_report("profile", "report.html", format="html")` writes the same thing without shelling out.
+Every command also works as `python -m phaselog ...`, which is the form to reach for when the console script is not on `PATH` — an unactivated virtualenv, a `pip install --user`, a batch job running `python` by absolute path. From inside the script that produced the run, `accounting.write_report("profile", "report.html", format="html")` writes the same thing without shelling out.
 
 ### Why was that worker idle?
 
@@ -103,12 +103,12 @@ Profiler(run_dir="profile", role="actor", trace=True)
 ```
 
 ```
-lineprofiler trace profile/ -o trace.html
+phaselog trace profile/ -o trace.html
 ```
 
 One lane per worker on a shared clock, idle time drawn as absence, and — where you mark a queue with `signal()` / `wait_on()` — arrows from a producer to the consumer it unblocked, plus the critical path that actually set the run's length.
 
-Nothing to instrument first: `LINEPROFILER_TRACE=auto` derives the lanes from function calls in your project, with no change to your code at all.
+Nothing to instrument first: `PHASELOG_TRACE=auto` derives the lanes from function calls in your project, with no change to your code at all.
 
 ## Worked example: finding the four phases of an MCTS
 
@@ -151,7 +151,7 @@ def uct_search(root_state, iterations=2000, c=1.4):
 Wrap it and look:
 
 ```python
-from lineprofiler import LineProfiler
+from phaselog import LineProfiler
 
 profiler = LineProfiler()
 with profiler:
@@ -200,8 +200,8 @@ That also settles which phase deserves attention first. The intuition for MCTS i
 The bands are the refactoring plan: one function per phase, named for what the measurement showed it to be, and each call wrapped in a `with` block that declares which phase it is.
 
 ```python
-from lineprofiler import accounting
-from lineprofiler.accounting import Profiler
+from phaselog import accounting
+from phaselog.accounting import Profiler
 
 Profiler(run_dir="profile", role="actor", install=True)   # once, at start-up
 
@@ -358,7 +358,7 @@ Here is the case every data pipeline meets: move 4,000 records of 4 KiB each. Th
 
 ```python
 import shutil
-from lineprofiler import accounting
+from phaselog import accounting
 
 def write_per_item(src_dir, dst_dir):
     """The obvious version: copy each record as its own file."""
@@ -379,10 +379,10 @@ def write_batched(src_dir, dst_dir, batch=250):
         accounting.count("records", len(chunk))
 ```
 
-The table below is in the exact format `lineprofiler report profile/` prints — the section headers, column layout and nesting all come straight from the renderer, though the specific timings are illustrative rather than captured from one pinned run. To produce your own: install a `Profiler` with a `run_dir` and a `role` (the report's `COPIER` header is `role.upper()`), wrap each variant in its own top-level phase — `accounting.phase("copy_one", ...)` inside `write_per_item` then nests under it as `per_item/copy_one`, which is why the row below has that path — close the profiler, then point the `report` subcommand at the run directory:
+The table below is in the exact format `phaselog report profile/` prints — the section headers, column layout and nesting all come straight from the renderer, though the specific timings are illustrative rather than captured from one pinned run. To produce your own: install a `Profiler` with a `run_dir` and a `role` (the report's `COPIER` header is `role.upper()`), wrap each variant in its own top-level phase — `accounting.phase("copy_one", ...)` inside `write_per_item` then nests under it as `per_item/copy_one`, which is why the row below has that path — close the profiler, then point the `report` subcommand at the run directory:
 
 ```python
-from lineprofiler.accounting import Profiler
+from phaselog.accounting import Profiler
 
 profiler = Profiler(run_dir="profile", role="copier", install=True)
 with accounting.phase("per_item"):
@@ -393,7 +393,7 @@ profiler.close()
 ```
 
 ```
-lineprofiler report profile/
+phaselog report profile/
 ```
 
 ```
@@ -439,7 +439,7 @@ Note also what the `r` column says: **0 B read from disk** in every phase, with 
 
 Wrap the candidate regions in `io=True`, read the `MB/s` column, and compare it to what the device should do. A large gap means the fix is a bigger batch, not a faster disk.
 
-> `io=True` needs `psutil` (`pip install with-line-profiler[resources]`); without it the phase
+> `io=True` needs `psutil` (`pip install phaselog[resources]`); without it the phase
 > still times normally and the byte columns are omitted rather than reported as zero. It reads
 > `/proc` at each end — tens of microseconds — so it belongs on coarse regions that really
 > touch the disk, never on an inner loop.
@@ -462,7 +462,7 @@ Everything below is **optional**. Each is imported lazily behind a capability ch
 ### The one-line version
 
 ```
-pip install with-line-profiler[all]     # psutil + nvidia-ml-py + viztracer
+pip install phaselog[all]     # psutil + nvidia-ml-py + viztracer
 pip install torch                       # separately — see below
 ```
 
@@ -470,10 +470,10 @@ pip install torch                       # separately — see below
 
 | Package | Install | What it adds | Reach for it when |
 |---|---|---|---|
-| **[psutil](https://github.com/giampaolo/psutil)** | `with-line-profiler[resources]` | The `RESOURCES` and `I/O` blocks: RSS, CPU-cores-used, and per-process read/write bytes split into disk vs page cache. | Almost always. This is the one to install first — without it the report cannot tell you what the run *cost*, only where the time went. |
-| **[nvidia-ml-py](https://pypi.org/project/nvidia-ml-py/)** | `with-line-profiler[gpu]` | The `GPU` block: per-device utilisation, split into your run's share (`this run`) and the whole device (`busy`), sampled at 1 Hz. Also `VRAM peak held` — what the device reports for your pids, which unlike the allocator figure includes each process's CUDA context. | You are on a GPU box and need to know whether the GPU is the constraint — especially on a *shared* node, where "busy" includes other tenants, or when deciding whether another worker fits on the card. |
+| **[psutil](https://github.com/giampaolo/psutil)** | `phaselog[resources]` | The `RESOURCES` and `I/O` blocks: RSS, CPU-cores-used, and per-process read/write bytes split into disk vs page cache. | Almost always. This is the one to install first — without it the report cannot tell you what the run *cost*, only where the time went. |
+| **[nvidia-ml-py](https://pypi.org/project/nvidia-ml-py/)** | `phaselog[gpu]` | The `GPU` block: per-device utilisation, split into your run's share (`this run`) and the whole device (`busy`), sampled at 1 Hz. Also `VRAM peak held` — what the device reports for your pids, which unlike the allocator figure includes each process's CUDA context. | You are on a GPU box and need to know whether the GPU is the constraint — especially on a *shared* node, where "busy" includes other tenants, or when deciding whether another worker fits on the card. |
 | **[torch](https://pytorch.org/)** | `pip install torch` (never a dependency of this package) | VRAM allocated/reserved; `phase(sync=True)`; `annotate=True`; the `backend="torch"` window. `sync=True` never drains in a process that has not initialised CUDA, so a CPU-only worker in a GPU job does not open a ~414 MiB context just by being profiled; `Profiler(cuda_sync=False)` switches it off outright. | You are training. The `sync=True` and `annotate=True` features are the ones people miss — see the two sections below. |
-| **[VizTracer](https://github.com/gaogaotiantian/viztracer)** | `with-line-profiler[viztracer]` | The `backend="viztracer"` window: a full per-call timeline for a bounded slice of the run. | A phase is slow and you do not know which *function* inside it is responsible. |
+| **[VizTracer](https://github.com/gaogaotiantian/viztracer)** | `phaselog[viztracer]` | The `backend="viztracer"` window: a full per-call timeline for a bounded slice of the run. | A phase is slow and you do not know which *function* inside it is responsible. |
 
 ### The two heavy backends
 
@@ -511,20 +511,25 @@ The GPU block in the I/O example shows the same principle from the other side: i
 
 ## Documentation
 
-- [The line profiler](https://github.com/mathematiger/withlineprofiler/blob/main/docs/line-profiler.md) — the `with` block, `start_profiling()`, and what it does not do
-- [The accounting layer](https://github.com/mathematiger/withlineprofiler/blob/main/docs/accounting.md) — phases, counters, and instrumenting without threading an argument
-- [Accounting recipes](https://github.com/mathematiger/withlineprofiler/blob/main/docs/accounting-recipes.md) — reading the report, I/O and GPU bottlenecks, overhead budgets, exporting to W&B
-- [Multiple processes and nodes](https://github.com/mathematiger/withlineprofiler/blob/main/docs/multiprocess.md) — Slurm, forking, preemption, heavy backends
-- [HTML reports](https://github.com/mathematiger/withlineprofiler/blob/main/docs/html-reports.md) — the icicle chart, the trace timeline, the annotated source view, and the embedded data block
-- [Configuration](https://github.com/mathematiger/withlineprofiler/blob/main/docs/configuration.md) — environment variables, `[tool.lineprofiler]`, optional dependencies
-- [Comparison with other profilers](https://github.com/mathematiger/withlineprofiler/blob/main/docs/comparison.md) — `line_profiler`, py-spy, Scalene, VizTracer, and when to use those instead
+- [The line profiler](https://github.com/mathematiger/phaselog/blob/main/docs/line-profiler.md) — the `with` block, `start_profiling()`, and what it does not do
+- [The accounting layer](https://github.com/mathematiger/phaselog/blob/main/docs/accounting.md) — phases, counters, and instrumenting without threading an argument
+- [Accounting recipes](https://github.com/mathematiger/phaselog/blob/main/docs/accounting-recipes.md) — reading the report, I/O and GPU bottlenecks, overhead budgets, exporting to W&B
+- [Multiple processes and nodes](https://github.com/mathematiger/phaselog/blob/main/docs/multiprocess.md) — Slurm, forking, preemption, heavy backends
+- [HTML reports](https://github.com/mathematiger/phaselog/blob/main/docs/html-reports.md) — the icicle chart, the trace timeline, the annotated source view, and the embedded data block
+- [Configuration](https://github.com/mathematiger/phaselog/blob/main/docs/configuration.md) — environment variables, `[tool.phaselog]`, optional dependencies
+- [Comparison with other profilers](https://github.com/mathematiger/phaselog/blob/main/docs/comparison.md) — `line_profiler`, py-spy, Scalene, VizTracer, and when to use those instead
+
+## Contributing
+
+Bug reports and pull requests are welcome. [CONTRIBUTING.md](https://github.com/mathematiger/phaselog/blob/main/CONTRIBUTING.md) explains what the project is afraid of (a number that is wrong and looks right), the four checks a change has to pass, and why the fourth one is *render the page and read it as a human*. If a number looks wrong to you, that is the most valuable issue you can file — there is [a form](https://github.com/mathematiger/phaselog/issues/new?template=01-wrong-numbers.yml) for exactly it.
 
 ## Version history
 
-Full detail in [CHANGELOG.md](https://github.com/mathematiger/withlineprofiler/blob/main/CHANGELOG.md).
+Full detail in [CHANGELOG.md](https://github.com/mathematiger/phaselog/blob/main/CHANGELOG.md).
 
 | Version | Major changes |
 |---|---|
+| **0.11.0** | Renamed to `phaselog` (distribution, import, CLI, environment variables, config table). Cross-host clock skew detected and disclosed; crashed and overflowed runs disclosed on every page; `phaselog trace --format chrome` for Perfetto; a differential test across the two builtin backends. |
 | **0.10.0** | `with profiler.region("select"):` — per-line statistics partitioned by a named block, on both engines, with `print_regions()`. |
 | **0.9.0** | The line profiler is now a front end over `line_profiler`'s C engine: 3.7x faster, correct inclusive billing for a line that calls a function, and correct under threads. `lineprofiler run script.py`, `dump_stats()` to `.lprof`, `start_profiling(enabled=True)`, `print_stats(stream=...)` in source order. |
 | **0.8.5** | This version history. |

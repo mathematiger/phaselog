@@ -21,15 +21,15 @@ from typing import Any
 
 import pytest
 
-from lineprofiler.accounting import Profiler
-from lineprofiler.accounting.cli import main
-from lineprofiler.accounting.findings import Finding
-from lineprofiler.accounting.htmltrace import (
+from phaselog.accounting import Profiler
+from phaselog.accounting.cli import main
+from phaselog.accounting.findings import Finding
+from phaselog.accounting.htmltrace import (
     _findings_block,
     render_trace_html,
     write_trace_html,
 )
-from lineprofiler.accounting.snapshot import merge_run
+from phaselog.accounting.snapshot import merge_run
 
 _VOID = {
     "meta", "br", "hr", "img", "input", "link", "area",
@@ -62,7 +62,7 @@ def _render(run_dir: Path) -> str:
 
 def _embedded(html: str) -> dict[str, Any]:
     match = re.search(
-        r'<script type="application/json" id="lineprofiler-data">(.*?)</script>',
+        r'<script type="application/json" id="phaselog-data">(.*?)</script>',
         html,
         re.DOTALL,
     )
@@ -193,7 +193,7 @@ def test_an_untraced_run_explains_how_to_record_one(tmp_path: Path) -> None:
     html = _render(tmp_path)
 
     assert "no trace data" in html
-    assert "LINEPROFILER_TRACE" in html
+    assert "PHASELOG_TRACE" in html
 
 
 def test_the_page_names_the_clock_accuracy(tmp_path: Path) -> None:
@@ -241,6 +241,68 @@ def test_a_stepped_wall_clock_is_stated_beside_the_figures_it_qualifies(
     # The caveats list the two facts side by side, so the one-host claim must give way:
     # "the shared time axis is exact" one line under "the clock stepped" reads as a bug.
     assert "the shared time axis is exact" not in html
+
+
+def _cross_worker_run(run_dir: Path, iterations: int = 5) -> None:
+    """An actor that signals and a learner that waits, run in turn by one process.
+
+    Sequential rather than concurrent so the timings are deterministic; the matched
+    signal/wait pairs still cross worker files, which is all the skew detector reads.
+    """
+    for role, before, link in (
+        ("actor", "collect", "signal"),
+        ("learner", "queue_get", "wait_on"),
+    ):
+        profiler = Profiler(
+            run_dir=run_dir, role=role, run_id="skewpair", enabled=True,
+            snapshot_interval_s=None, sample_interval_s=None, trace=True,
+        )
+        with profiler:
+            for step in range(iterations):
+                with profiler.phase(before):
+                    pass
+                getattr(profiler, link)("batch", step)
+
+
+def _shift_one_workers_wall_clock(run_dir: Path, role: str, by_ns: int) -> None:
+    """Set one worker's whole wall clock off by ``by_ns``, as a mis-set host would.
+
+    Every anchor moves by the same constant, so the worker stays internally consistent and
+    ``usable_anchors`` sees nothing — the arrows are the only evidence left in the data.
+    """
+    for worker_file in run_dir.rglob("w_*.json"):
+        if json.loads(worker_file.read_text(encoding="utf-8")).get("role") != role:
+            continue
+        sidecar = worker_file.with_suffix(".trace")
+        lines = []
+        for line in sidecar.read_text(encoding="utf-8").splitlines():
+            batch = json.loads(line)
+            for anchor in batch.get("anchors") or []:
+                anchor["real_ns"] += by_ns
+            lines.append(json.dumps(batch))
+        sidecar.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def test_a_skewed_pair_of_hosts_is_disclosed_beside_the_findings(tmp_path: Path) -> None:
+    """Internally consistent clocks 300 s apart draw a 0.2 s run as five minutes, and the
+    findings then describe a run that never happened. The disclosure has to sit where the
+    conclusions are read, not 7,800 characters below them, and the caveat block's advice to
+    treat sub-millisecond gaps as noise has to give way to the measured bound."""
+    _cross_worker_run(tmp_path)
+    _shift_one_workers_wall_clock(tmp_path, role="learner", by_ns=-300 * 1_000_000_000)
+
+    html = _render(tmp_path)
+
+    assert "clocks disagree" in html
+    assert html.index("clocks disagree") < html.index("Findings")
+    assert "Treat sub-millisecond gaps" not in html
+
+
+def test_a_healthy_cross_worker_run_makes_no_skew_claim(tmp_path: Path) -> None:
+    """The disclosure must not fire on the honest run it exists to protect."""
+    _cross_worker_run(tmp_path)
+
+    assert "clocks disagree" not in _render(tmp_path)
 
 
 def test_a_stepped_wall_clock_does_not_destroy_the_durations_it_precedes(
@@ -570,7 +632,7 @@ def _auto_traced_run(run_dir: Path, project: Path) -> None:
     """One worker traced by function calls, with no ``phase()`` call in the traced code."""
     import workload  # type: ignore[import-not-found]
 
-    from lineprofiler.accounting.autotrace import AutoTracer
+    from phaselog.accounting.autotrace import AutoTracer
 
     profiler = Profiler(
         run_dir=run_dir,

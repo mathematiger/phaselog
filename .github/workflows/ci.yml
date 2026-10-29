@@ -31,8 +31,8 @@ jobs:
           cache: poetry
       - run: poetry env use "${{ steps.setup.outputs.python-path }}"
       - run: poetry install --with dev,test --extras resources
-      - run: poetry run ruff check lineprofiler tests with_line_profiler.py
-      - run: poetry run mypy lineprofiler tests with_line_profiler.py
+      - run: poetry run ruff check phaselog tests
+      - run: poetry run mypy phaselog tests
 
   test:
     name: pytest (py${{ matrix.python }})
@@ -112,7 +112,7 @@ jobs:
           cache: poetry
       - run: poetry env use "${{ steps.setup.outputs.python-path }}"
       - run: poetry install --with dev,test --extras resources
-      - run: poetry run pytest tests/ --cov=lineprofiler --cov-report=term-missing --cov-report=xml
+      - run: poetry run pytest tests/ --cov=phaselog --cov-report=term-missing --cov-report=xml
       - uses: actions/upload-artifact@v4
         with:
           name: coverage-xml

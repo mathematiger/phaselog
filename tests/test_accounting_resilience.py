@@ -21,19 +21,23 @@ from pathlib import Path
 
 import pytest
 
-from lineprofiler.accounting import Profiler, merge_run, render
-from lineprofiler.accounting.analysis import NO_PHASE, analyse, analyse_processes
-from lineprofiler.accounting.compare import PhaseDelta, _comparison_notes, _delta_row
-from lineprofiler.accounting.identity import hostname
-from lineprofiler.accounting.phasetree import PhaseStats, PhaseTree
-from lineprofiler.accounting.profiler import (
+from phaselog.accounting import Profiler, merge_run, render
+from phaselog.accounting.analysis import NO_PHASE, analyse, analyse_processes
+from phaselog.accounting.compare import PhaseDelta, _comparison_notes, _delta_row
+from phaselog.accounting.findings import Finding
+from phaselog.accounting.htmlreport import render_html
+from phaselog.accounting.htmltrace import render_trace_html
+from phaselog.accounting.identity import hostname
+from phaselog.accounting.phasetree import PhaseStats, PhaseTree
+from phaselog.accounting.profiler import (
     _NAME_SHAPE_WARN,
     ENV_RUN_DIR,
     MAX_PHASES,
     _resolve_run_dir,
 )
-from lineprofiler.accounting.report import (
+from phaselog.accounting.report import (
     _counter_rows,
+    _findings_block,
     _io_attribution_note,
     _io_phase_rows,
     _label,
@@ -42,8 +46,8 @@ from lineprofiler.accounting.report import (
     format_label,
     format_ns,
 )
-from lineprofiler.accounting.sampler import IoSnapshot, Sample, read_io_snapshot
-from lineprofiler.accounting.snapshot import SnapshotWriter, new_run_id
+from phaselog.accounting.sampler import IoSnapshot, Sample, read_io_snapshot
+from phaselog.accounting.snapshot import SnapshotWriter, new_run_id
 
 # ── a failed counter read must not be differenced ───────────────────────────
 
@@ -171,11 +175,11 @@ def test_a_raising_snapshot_does_not_stop_the_ones_after_it(tmp_path: Path) -> N
     failures = {"n": 0}
     real_write = writer.write
 
-    def fail_twice(tree: PhaseTree) -> bool:
+    def fail_twice(tree: PhaseTree, phase_overflow: int = 0) -> bool:
         failures["n"] += 1
         if failures["n"] <= 2:
             raise OSError(28, "No space left on device")
-        return real_write(tree)
+        return real_write(tree, phase_overflow=phase_overflow)
 
     writer.write = fail_twice  # type: ignore[method-assign]
     with profiler.phase("train"):
@@ -247,7 +251,7 @@ def test_a_counter_added_during_a_merge_does_not_raise() -> None:
 def _one_attempt(run_dir: Path, phase: str, calls: int) -> None:
     """Run a whole attempt in a fresh process, so it gets its own run id."""
     code = "\n".join([
-        "from lineprofiler.accounting import Profiler",
+        "from phaselog.accounting import Profiler",
         f"p = Profiler(run_dir={str(run_dir)!r}, enabled=True,",
         "             snapshot_interval_s=None, sample_interval_s=None)",
         f"for _ in range({calls}):",
@@ -255,7 +259,7 @@ def _one_attempt(run_dir: Path, phase: str, calls: int) -> None:
         "        pass",
         "p.close()",
     ])
-    environment = {k: v for k, v in os.environ.items() if not k.startswith("LINEPROFILER_")}
+    environment = {k: v for k, v in os.environ.items() if not k.startswith("PHASELOG_")}
     subprocess.run([sys.executable, "-c", code], check=True, env=environment)
 
 
@@ -438,7 +442,7 @@ def test_a_scheduler_signal_flushes_before_the_process_dies(
     everything since the last periodic flush used to be lost."""
     code = "\n".join([
         "import time",
-        "from lineprofiler.accounting import Profiler",
+        "from phaselog.accounting import Profiler",
         f"p = Profiler(run_dir={str(tmp_path)!r}, enabled=True,",
         "             snapshot_interval_s=None, sample_interval_s=None)",
         "with p.phase('work'):",
@@ -446,7 +450,7 @@ def test_a_scheduler_signal_flushes_before_the_process_dies(
         "print('ready', flush=True)",
         "time.sleep(30)",
     ])
-    environment = {k: v for k, v in os.environ.items() if not k.startswith("LINEPROFILER_")}
+    environment = {k: v for k, v in os.environ.items() if not k.startswith("PHASELOG_")}
     process = subprocess.Popen(
         [sys.executable, "-c", code], stdout=subprocess.PIPE, text=True, env=environment,
     )
@@ -486,6 +490,51 @@ def test_the_overflow_warning_names_the_culprit(tmp_path: Path) -> None:
             with profiler.phase(f"step_{index}"):
                 pass
     profiler.close()
+
+
+def test_a_phase_name_holding_the_path_separator_does_not_dissolve_the_role(
+    tmp_path: Path,
+) -> None:
+    """``phase("train/queue_get")`` is a natural thing to write, and it used to erase a role.
+
+    Paths are tuples in memory and ``/``-joined strings on disk, so a slash inside a *name*
+    survives the write and comes back as nesting under a parent that never existed. The role
+    block sums the roots it can see, found none, and returned empty — while the findings above
+    it went on discussing the phase by name. A page that names a phase in its headline and
+    then omits the section it belongs to is the wrong-numbers failure, not a cosmetic one.
+    """
+    profiler = Profiler(
+        run_dir=tmp_path,
+        enabled=True,
+        role="learner",
+        snapshot_interval_s=None,
+        sample_interval_s=None,
+    )
+    with pytest.warns(RuntimeWarning, match="path separator"):
+        for _ in range(4):
+            with profiler.phase("train/queue_get"):
+                pass
+    profiler.close()
+
+    run = merge_run(tmp_path)
+    assert ("train_queue_get",) in run.tree, run.tree.keys()
+    assert ("train", "queue_get") not in run.tree
+    assert run.tree[("train_queue_get",)].calls == 4
+    assert "LEARNER" in render(run)
+
+
+def test_a_phase_name_without_a_separator_is_left_exactly_as_written(tmp_path: Path) -> None:
+    """The repair must not touch the ordinary case, nor warn about it."""
+    profiler = Profiler(
+        run_dir=tmp_path, enabled=True, snapshot_interval_s=None, sample_interval_s=None,
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        with profiler.phase("train"), profiler.phase("queue_get"):
+            pass
+    profiler.close()
+
+    assert ("train", "queue_get") in merge_run(tmp_path).tree
 
 
 def test_a_fixed_phase_name_never_warns(tmp_path: Path) -> None:
@@ -685,7 +734,7 @@ def test_the_comparison_tail_note_marks_a_truncated_phase_too() -> None:
 def test_a_relative_run_dir_is_resolved_before_it_is_propagated(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The defect: ``Path("profile")`` was exported verbatim through LINEPROFILER_RUN_DIR, so
+    """The defect: ``Path("profile")`` was exported verbatim through PHASELOG_RUN_DIR, so
     a child with its own working directory wrote its worker file somewhere else entirely.
     One run merged as several short ones, each missing most of its workers."""
     monkeypatch.delenv("SLURM_SUBMIT_DIR", raising=False)
@@ -1496,3 +1545,309 @@ def test_an_ordinary_nested_tree_gets_no_such_warning() -> None:
         tree[path] = stats
 
     assert _self_nesting_warning(tree) == []
+
+
+# ── degenerate runs must not erase or fabricate the story ───────────────────
+
+
+def _crashed_mid_phase_run(run_dir: Path) -> None:
+    """A worker whose root phase was open when the process hard-exited.
+
+    The exact shape ``snapshot()`` writes for ``with p.phase("outer"): … os._exit()``:
+    the root has zero calls and zero wall but carries its children's time in
+    ``child_wall_ns``, and the children are complete.
+    """
+    workers = run_dir / "workers" / "node"
+    workers.mkdir(parents=True)
+    (workers / "w_run_100_aaaaaaaa.json").write_text(
+        json.dumps({
+            "version": 1, "run_id": "run", "pid": 100, "role": "probe",
+            "started_at": 0.0, "written_at": 0.13,
+            "placement": {"host": "node"},
+            "phases": {
+                "outer": {
+                    "calls": 0, "wall_ns": 0, "cpu_ns": 0,
+                    "child_wall_ns": 100_000_000, "hist": {}, "counters": {},
+                },
+                "outer/inner": {
+                    "calls": 5, "wall_ns": 100_000_000, "cpu_ns": 47_000,
+                    "child_wall_ns": 0, "hist": {"200": 5}, "counters": {},
+                },
+            },
+        }),
+        encoding="utf-8",
+    )
+
+
+def test_a_crash_inside_an_open_root_phase_keeps_the_role_block(tmp_path: Path) -> None:
+    """The defect: the role block's total came from root ``wall_ns`` alone, which is zero
+    for a phase entered and never exited — so the flagship crash scenario rendered no
+    pipeline shares and no DOMINANT PHASES while the findings above happily discussed the
+    very phases the page never listed."""
+    _crashed_mid_phase_run(tmp_path)
+
+    report = render(merge_run(tmp_path))
+
+    assert "PROBE" in report, "the role block must survive the crash"
+    assert "outer/inner" in report, "the dominant phase must be listed, not just discussed"
+
+
+def test_a_derived_root_wall_time_is_disclosed_beside_the_block(tmp_path: Path) -> None:
+    """The derived figure must never read as a measurement: the note names the phase that
+    was open and says where its time came from."""
+    _crashed_mid_phase_run(tmp_path)
+
+    report = render(merge_run(tmp_path))
+
+    assert "'outer'" in report
+    assert "never exited" in report
+    assert "derived from its children" in report
+
+
+def test_an_open_root_phase_still_counts_toward_worker_wall_time(tmp_path: Path) -> None:
+    """The defect: ``WorkerSnapshot.wall_ns`` was 0 for a crashed worker, poisoning the
+    imbalance ratio for every healthy worker beside it."""
+    _crashed_mid_phase_run(tmp_path)
+
+    run = merge_run(tmp_path)
+
+    assert run.workers[0].wall_ns == 100_000_000
+
+
+def test_the_html_report_keeps_an_open_root_phases_breakdown(tmp_path: Path) -> None:
+    """The same crash rendered ``Other 100.0%`` with no chart in the HTML report."""
+    _crashed_mid_phase_run(tmp_path)
+
+    html = render_html(merge_run(tmp_path))
+
+    assert "inner" in html, "the phase tree must still be drawn"
+    assert "never exited" in html, "the derived figure needs its note here too"
+
+
+def _crashed_traced_run(run_dir: Path) -> None:
+    """A traced worker whose root phase was still open when the last snapshot was written.
+
+    Built by running a profiler rather than by writing the file, because the timeline needs
+    the ``.trace`` sidecar the hand-made worker file above has no counterpart for — and the
+    property under test is precisely what the sidecar does *not* contain.
+    """
+    profiler = Profiler(
+        run_dir=run_dir, role="probe", enabled=True, trace=True, measure_cpu=True,
+        snapshot_interval_s=None, sample_interval_s=None,
+    )
+    still_open = profiler.phase("outer")
+    still_open.__enter__()
+    for _ in range(3):
+        with profiler.phase("inner"):
+            time.sleep(0.01)
+    profiler.close()
+
+
+def test_the_timeline_says_a_phase_was_open_when_the_run_stopped(tmp_path: Path) -> None:
+    """A span is recorded on exit, so an open phase left none and the tail of its lane is
+    drawn empty. The report's disclosure does not reach the reader of the timeline, and on
+    this page the loss is a bar that was never drawn rather than a total that is short."""
+    _crashed_traced_run(tmp_path)
+
+    html = render_trace_html(merge_run(tmp_path, with_trace=True))
+
+    assert "outer" in html
+    assert "never exited" in html, "the crash must be named on the page it distorts"
+    assert "not because the worker was idle" in html, "absence is this page's idle sign"
+
+
+def test_a_clean_traced_run_carries_no_open_phase_note(tmp_path: Path) -> None:
+    """The note must be about this run, or it stops being read on the run that needs it."""
+    profiler = Profiler(
+        run_dir=tmp_path, enabled=True, trace=True, measure_cpu=True,
+        snapshot_interval_s=None, sample_interval_s=None,
+    )
+    with profiler, profiler.phase("outer"), profiler.phase("inner"):
+        time.sleep(0.01)
+
+    html = render_trace_html(merge_run(tmp_path, with_trace=True))
+
+    assert "never exited" not in html
+
+
+_OVERFLOW_NAMES = 20
+"""Distinct phase names the run below burns through, against a cap patched down to 8."""
+
+
+def _overflowed_traced_run(run_dir: Path) -> None:
+    """Real work under folded phase names, bracketed by a name the tree admitted.
+
+    The bracketing matters: the traced span runs from the first recorded span to the last, so
+    an overflow at the tail would fall outside it entirely and leave no gap to misread. This
+    is the shape that produced the wrong conclusion — a lane that recorded, went quiet for
+    the work that overflowed, then recorded again.
+    """
+    profiler = Profiler(
+        run_dir=run_dir, role="actor", enabled=True, trace=True, measure_cpu=True,
+        snapshot_interval_s=None, sample_interval_s=None,
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        with profiler.phase("train"):
+            time.sleep(0.005)
+        for index in range(_OVERFLOW_NAMES):
+            with profiler.phase(f"batch_{index}"):
+                time.sleep(0.002)
+        with profiler.phase("train"):
+            time.sleep(0.005)
+    profiler.close()
+
+
+def test_the_timeline_withholds_the_idle_claim_on_an_overflowed_worker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """End to end, on a real run: the lane that looks idle is the lane whose evidence was
+    folded away, and the page must not present the one as the other."""
+    monkeypatch.setattr("phaselog.accounting.profiler.MAX_PHASES", 8)
+    _overflowed_traced_run(tmp_path)
+
+    run = merge_run(tmp_path, with_trace=True)
+    html = render_trace_html(run)
+
+    assert run.workers[0].phase_overflow > 0, "the run must actually have overflowed"
+    assert "phase tree overflowed" in html, "the header states the fact unconditionally"
+    assert "had no phase open for" not in html, "the idle claim rests on folded evidence"
+    assert "so no idle finding is made" in html, "and the withholding is stated, not silent"
+
+
+def test_phase_overflow_reaches_the_snapshot_and_the_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The defect: the once-per-process stderr warning was the only trace of the tree
+    folding, so the artifact affirmatively claimed idleness for time that was real,
+    unrecorded work."""
+    monkeypatch.setattr("phaselog.accounting.profiler.MAX_PHASES", 8)
+    profiler = Profiler(
+        run_dir=tmp_path, enabled=True, snapshot_interval_s=None, sample_interval_s=None,
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        for index in range(12):
+            with profiler.phase(f"phase_{index}"):
+                pass
+        with profiler.phase("after_overflow"):
+            pass
+    profiler.close()
+
+    run = merge_run(tmp_path)
+    report = render(run)
+    header = report.split("RESOURCES")[0]
+
+    assert run.workers[0].phase_overflow > 0, "the overflow must survive into the artifact"
+    assert "WARNING" in header
+    assert "recorded nothing" in header, "the consequence must be stated, not just the event"
+    assert "work" in header and "idle" in header
+
+
+def test_a_run_without_overflow_carries_no_overflow_warning(tmp_path: Path) -> None:
+    profiler = Profiler(
+        run_dir=tmp_path, enabled=True, snapshot_interval_s=None, sample_interval_s=None,
+    )
+    with profiler.phase("train"):
+        pass
+    profiler.close()
+
+    run = merge_run(tmp_path)
+
+    assert run.workers[0].phase_overflow == 0
+    assert "overflow" not in render(run)
+
+
+def test_a_short_run_with_psutil_rows_does_not_prescribe_installing_it(
+    tmp_path: Path,
+) -> None:
+    """The defect: a run shorter than the sampler's second reading printed "install psutil
+    to record them" while psutil's own RSS rows sat on the same page."""
+    workers = tmp_path / "workers"
+    workers.mkdir(parents=True)
+    (workers / "w_run_1_aaaaaaaa.json").write_text(
+        json.dumps({
+            "version": 1, "run_id": "run", "pid": 1, "role": "main",
+            "started_at": 0.0, "written_at": 1.0,
+            "phases": {"train": {
+                "calls": 1, "wall_ns": 1_000_000, "cpu_ns": 500_000, "child_wall_ns": 0,
+                "hist": {"80": 1}, "counters": {},
+            }},
+        }),
+        encoding="utf-8",
+    )
+    (workers / "w_run_1_aaaaaaaa.samples").write_text(
+        "\n".join(
+            json.dumps({"t": 0.1 * step, "phase": "train", "rss": 1_000_000})
+            for step in range(3)
+        ) + "\n",
+        encoding="utf-8",
+    )
+
+    report = render(merge_run(tmp_path))
+
+    assert "install psutil" not in report, "the capability was present; the run was short"
+    assert "second sampler reading" in report, "the real cause must be named instead"
+
+
+def test_a_run_that_died_before_any_flush_is_reported_as_absent_not_zero(
+    tmp_path: Path,
+) -> None:
+    """The defect: a directory holding only metadata and an orphaned ``.samples`` file
+    rendered ``Runtime 0ns   Processes 0   Roles none`` as if measured."""
+    (tmp_path / "metadata.json").write_text(
+        json.dumps({"version": 1, "run_id": "run", "host": "node"}), encoding="utf-8",
+    )
+    workers = tmp_path / "workers" / "node"
+    workers.mkdir(parents=True)
+    (workers / "w_run_7_aaaaaaaa.samples").write_text("{}\n", encoding="utf-8")
+
+    report = render(merge_run(tmp_path))
+
+    assert "Runtime 0ns" not in report, "an absent runtime must not read as a measured zero"
+    assert "no worker" in report
+    assert "snapshot_interval_s" in report, "the remedy must be named"
+    assert "snapshot()" in report and "close()" in report
+    assert "orphaned" in report, "the evidence that a worker started must be mentioned"
+
+
+def test_a_run_with_workers_does_not_claim_nothing_flushed(tmp_path: Path) -> None:
+    profiler = Profiler(
+        run_dir=tmp_path, enabled=True, snapshot_interval_s=None, sample_interval_s=None,
+    )
+    with profiler.phase("train"):
+        pass
+    profiler.close()
+
+    assert "no worker" not in render(merge_run(tmp_path))
+
+
+def test_a_findings_headline_cannot_overflow_the_report_column() -> None:
+    """The defect: the headline was emitted raw, so a long or hostile phase name inside it
+    reopened iteration 1's width defect on this one surface."""
+    hostile = "x" * 200
+    finding = Finding(
+        kind="blocked-phase",
+        headline=f"phase {hostile} spent 100% of its time blocked",
+        detail="No other lane had a phase open during that wait.",
+        cost_pct=100.0,
+    )
+
+    block = _findings_block([finding])
+    lines = block.splitlines()
+
+    assert max(len(line) for line in lines) <= 62, "every line must keep the report column"
+    assert "".join(lines).count("x") >= 200, "wrapped, not truncated: the sentence survives"
+
+
+def test_a_control_character_in_a_headline_cannot_break_the_block() -> None:
+    finding = Finding(
+        kind="blocked-phase",
+        headline="phase a\x00b\rc waited",
+        detail="detail\x1b[31m here",
+        cost_pct=1.0,
+    )
+
+    block = _findings_block([finding])
+
+    assert "\x00" not in block and "\x1b" not in block
