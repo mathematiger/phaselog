@@ -29,13 +29,15 @@ with profiler.phase("checkpoint", io=True):            # exact byte attribution
     save(model)
 ```
 
+**Processes launched separately need one shared run id.** A child started by a profiled parent inherits it through `PHASELOG_RUN_ID`; an actor and a learner launched independently — two shell commands, or `multiprocessing` workers whose parent built no `Profiler` — each mint their own, and the report then keeps the newest and lists the rest as superseded attempts. Pass the same `Profiler(run_id=...)` to each, or export `PHASELOG_RUN_ID` before launching them.
+
 Naming a `run_dir` turns the profiler on: nobody passes one and means "write nothing there". Without one, the switch is `PHASELOG_PROFILE=1` in the environment, which is what lets library code carry `accounting.phase(...)` calls permanently at no cost. An explicit `enabled=` beats both, in either direction, so a launcher can turn a run off without editing the call — and a profiler that ends up disabled with phases entered on it says so on `close()` rather than leaving an empty directory to be discovered later.
 
 ```
 phaselog report profile/
 phaselog report profile/ --no-samples     # phases only; skips the resource blocks
-phaselog report profile/ --json           # the same run as data, for CI gates and diffs
-phaselog compare profile_a/ profile_b/ [--json]
+phaselog report profile/ --format json    # the same run as data, for CI gates and diffs
+phaselog compare profile_a/ profile_b/ [--format json]
 ```
 
 Every command also works as `python -m phaselog report profile/`, which needs only the package to be importable — no console script on `PATH`. From inside the script that produced the run, `write_report("profile", "report.html", format="html")` writes the same report to a file directly; `write_trace` does the same for the timeline. Both take the CLI's formats.

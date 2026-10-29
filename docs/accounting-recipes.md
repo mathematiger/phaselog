@@ -157,13 +157,15 @@ four.
 Mark the checkpoints instead, in whichever process owns each transition:
 
 ```python
+from phaselog import accounting
+
 # client, before the put
-profiling.trace_begin("inference", request_id)
+accounting.trace_begin("inference", request_id)
 # server, on dequeue into a batch
-profiling.trace_mark("inference", request_id, "admitted")
-profiling.trace_mark("inference", request_id, "computed")
+accounting.trace_mark("inference", request_id, "admitted")
+accounting.trace_mark("inference", request_id, "computed")
 # client, after the get
-profiling.trace_end("inference", request_id)
+accounting.trace_end("inference", request_id)
 ```
 
 ```
@@ -436,7 +438,7 @@ latest = max(w.written_at for w in run.workers)
 assert all(latest - w.written_at < 300 for w in run.workers), "a worker stopped writing"
 ```
 
-For a CI gate outside Python, `phaselog report <dir> --json` gives the same document —
+For a CI gate outside Python, `phaselog report <dir> --format json` gives the same document —
 `run`, `roles[].phases[]`, `workers[]` and `caveats` — with the shares and quantiles already
 derived. `caveats` is part of that document on purpose: a run that lost a worker must not read
 as a complete result to a program either.

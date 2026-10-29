@@ -1,7 +1,7 @@
 [project]
 name = "phaselog"
 version = "0.11.0"
-description = "Phase accounting for long multi-process runs, plus line-by-line profiling of a `with` block timed by line_profiler."
+description = "Phase accounting for long multi-process runs, plus line-by-line profiling of a with block, timed by line_profiler."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"

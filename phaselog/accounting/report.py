@@ -104,7 +104,7 @@ def report_as_dict(run: MergedRun) -> dict[str, Any]:
     """
     document: dict[str, Any] = {
         "run": {
-            "run_id": run.metadata.get("run_id"),
+            "run_id": run.run_id,
             "source": run.metadata.get("source", {}),
             "hosts": run.hosts,
             "processes": len(run.workers),
@@ -279,6 +279,10 @@ def _resources_as_dict(analysis: SampleAnalysis) -> dict[str, Any]:
     }
 
 
+IO_NOT_MEASURED = "Not measured: per-process byte counters were unavailable."
+"""Said instead of totals when no interval could be read (no psutil, or macOS, which has no
+such counters) — zeros there read as "this run did no I/O"."""
+
 UNUSABLE = "n/a"
 """What a renderer prints where a duration could not be a duration.
 
@@ -430,8 +434,8 @@ def _phase_overflow_warning(run: MergedRun) -> list[str]:
     return [
         f"WARNING  the phase tree overflowed{where}: {entries:,} phase {noun} past the",
         "         cap recorded nothing at all. Unattributed or idle-looking time may",
-        "         be that missing work, not idleness. A phase name built from data is",
-        "         the usual cause — use a fixed name and count() instead.",
+        "         be that missing work, not idleness. A phase name built from data, or",
+        "         nesting past the depth cap (recursion, asyncio tasks), is the cause.",
     ]
 
 
@@ -548,7 +552,7 @@ def _empty_run_lines(run: MergedRun) -> list[str]:
 def _hosts_line(run: MergedRun) -> str:
     """Name the nodes involved, and the attempt, so a report cannot be mistaken for another."""
     hosts = run.hosts
-    run_id = run.metadata.get("run_id")
+    run_id = run.run_id
     suffix = f"   Run {run_id}" if run_id else ""
     if len(hosts) > 4:
         return f"Hosts {', '.join(hosts[:4])} +{len(hosts) - 4} more ({len(hosts)} nodes){suffix}"
@@ -888,6 +892,14 @@ def _concurrency_rows(role: str, aligned: AlignedTrace | None, limit: int = 3) -
                 "recorded signal/wait_on pair(s) landed inside the wait, so a producer "
                 "released it: a queue, not a stall.",
             ]
+        # The findings block's single-lane rule: with no other lane recorded, "nothing else
+        # was active" is not evidence of a stall — the producer is in a process not traced.
+        if len(aligned.lanes) < 2:
+            return [
+                "",
+                f"  while {role} waited, this run recorded no other lane, so it cannot say",
+                "  what released the wait — profile the other side of it too.",
+            ]
         return [
             "",
             f"  while {role} waited, no other lane was active — this is a stall, not a queue.",
@@ -1119,13 +1131,22 @@ def _share_rows(tree: PhaseTree, processes: int = 1) -> list[str]:
 
 
 def _first_branching_prefix(tree: PhaseTree) -> PhasePath:
-    """Descend while each level holds exactly one phase; return the first that branches."""
+    """Descend while each level holds exactly one phase; return the first that branches.
+
+    Never descends into a leaf: a chain that never branches stops at the leaf's parent, so the
+    leaf is a named row. Landing on the leaf itself left no siblings and billed all of its time
+    to ``Other`` — one row reading "Other 100%" for work that had a name.
+    """
     prefix: PhasePath = ()
     while True:
         children = [p for p in tree if len(p) == len(prefix) + 1 and p[:-1] == prefix]
-        if len(children) != 1:
+        if len(children) != 1 or not _has_children(tree, children[0]):
             return prefix
         prefix = children[0]
+
+
+def _has_children(tree: PhaseTree, path: PhasePath) -> bool:
+    return any(len(p) == len(path) + 1 and p[:-1] == path for p in tree)
 
 
 def _dominant_rows(tree: PhaseTree, limit: int = 6) -> list[str]:
@@ -1531,6 +1552,8 @@ def _io_gap_note(analysis: SampleAnalysis) -> list[str]:
     gaps = analysis.io_gap_intervals
     if not gaps:
         return []
+    if gaps == analysis.io_intervals:
+        return ["", f"  {IO_NOT_MEASURED}"]
     share = gaps / analysis.io_intervals if analysis.io_intervals else 0.0
     return [
         "",

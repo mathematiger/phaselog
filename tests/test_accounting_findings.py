@@ -602,13 +602,32 @@ def test_recorded_arrows_overrule_the_stall_verdict_in_the_role_summary() -> Non
 
 
 def test_a_wait_with_no_arrows_and_no_activity_is_still_called_a_stall() -> None:
+    """A second lane, idle throughout the wait, is what makes the silence evidence."""
+    trace = _trace([
+        _span("learner", ("queue_get",), 100, 900, cpu_ms=0, role="learner"),
+        _span("actor", ("rollout",), 0, 50, cpu_ms=50, role="actor"),
+    ])
+
+    rows = _concurrency_rows("learner", trace)
+
+    assert any("stall" in row for row in rows), rows
+
+
+def test_a_single_lane_wait_is_not_called_a_stall_in_the_role_summary() -> None:
+    """The role summary must not claim the stall the findings block withholds.
+
+    On a one-lane run there was no other lane that could have been active, so "no other lane
+    was active — this is a stall" is an inference with nothing under it, printed a few lines
+    below a finding that correctly says the trace cannot tell.
+    """
     trace = _trace([
         _span("learner", ("queue_get",), 100, 900, cpu_ms=0, role="learner"),
     ])
 
     rows = _concurrency_rows("learner", trace)
 
-    assert any("stall" in row for row in rows), rows
+    assert not any("stall" in row for row in rows), rows
+    assert any("no other lane" in row for row in rows), rows
 
 
 def test_a_headline_never_carries_an_unbounded_phase_name() -> None:

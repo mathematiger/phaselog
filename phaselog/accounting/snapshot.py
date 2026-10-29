@@ -379,6 +379,21 @@ class MergedRun:
         return list(seen)
 
     @property
+    def run_id(self) -> str | None:
+        """The attempt every total in this run was taken from.
+
+        Read from the kept workers, not ``metadata.json``: that file is written by whichever
+        attempt wrote it *last*, while the kept attempt is the one that *started* last, and
+        overlapping attempts disagree — the header then named an attempt excluded from every
+        figure under it. Falls back to the metadata only for files predating run ids.
+        """
+        kept = {worker.run_id for worker in self.workers} - {UNKNOWN_RUN}
+        if len(kept) == 1:
+            return kept.pop()
+        run_id = self.metadata.get("run_id")
+        return str(run_id) if run_id else None
+
+    @property
     def hardware_by_host(self) -> dict[str, dict[str, Any]]:
         """Each node's capacity, keyed by host, in first-seen order.
 

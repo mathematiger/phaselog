@@ -83,10 +83,7 @@ Two choices worth knowing:
 | `phaselog trace <dir> -q` | suppress the stderr progress lines |
 | `phaselog trace <dir> --fail-over N` | exit non-zero if any finding costs more than N% of the run |
 
-`--output`/`-o` writes to a path instead of stdout. It does not create parent directories: on
-a command line a path that does not exist is usually a typo, and failing loudly beats
-scattering directories. The library call `write_html()` does create them, since a caller
-writing to `reports/run-17.html` from code means it.
+`--output`/`-o` writes to a path instead of stdout. It does not create parent directories: on a command line a path that does not exist is usually a typo, and failing loudly beats scattering directories. The library calls below do create them, since a caller writing to `reports/run-17.html` from code means it.
 
 Every command also works as `python -m phaselog ...`, for when the console script is not on `PATH`.
 
@@ -101,7 +98,7 @@ write_report("profile", "reports/run-17.html", format="html")   # text | json | 
 write_trace("profile", "reports/run-17-trace.html")             # html | json
 ```
 
-The formats are exactly the CLI's, and an unrecognised one raises rather than quietly falling back. Both create parent directories, as `write_html()` does. Both read the trace sidecars: the findings, the occupancy and the request-lifecycle blocks are all derived from spans, so a run recorded with `trace=True` renders with everything it was instrumented for. `write_trace(..., format="json")` emits the same document `phaselog trace --format json` prints — one derivation, so a gate and the file beside it cannot disagree.
+The formats are exactly the CLI's, and an unrecognised one raises rather than quietly falling back. Both create parent directories. Both read the trace sidecars: the findings, the occupancy and the request-lifecycle blocks are all derived from spans, so a run recorded with `trace=True` renders with everything it was instrumented for. `write_trace(..., format="json")` emits the same document `phaselog trace --format json` prints — one derivation, so a gate and the file beside it cannot disagree.
 
 ## The trace timeline
 

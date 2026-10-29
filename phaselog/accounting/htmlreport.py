@@ -21,6 +21,7 @@ from phaselog.accounting.hardware import total_vram as hardware_total_vram
 from phaselog.accounting.phasetree import PhasePath, PhaseTree
 from phaselog.accounting.provenance import source_of
 from phaselog.accounting.report import (
+    IO_NOT_MEASURED,
     format_ns,
     idle_context_roles,
     pooled_capacity,
@@ -172,7 +173,7 @@ def _header(run: MergedRun, title: str) -> str:
         tile("hosts", ", ".join(run.hosts) or "unknown"),
         tile("imbalance", f"{run.imbalance:.2f}"),
     ])
-    run_id = escape(str(run.metadata.get("run_id", "unknown")))
+    run_id = escape(str(run.run_id or "unknown"))
     source = source_of(run.metadata)
     source_html = f" · {escape(source)}" if source else ""
     return (
@@ -214,6 +215,10 @@ def _empty_run_banner(run: MergedRun) -> str:
 
 def _header_warnings(run: MergedRun) -> str:
     """Warnings that must sit beside the headline figures they qualify, not in Caveats."""
+    return _overflow_warning(run) + _excluded_workers_warning(run)
+
+
+def _overflow_warning(run: MergedRun) -> str:
     entries = sum(worker.phase_overflow for worker in run.workers)
     if not entries:
         return ""
@@ -221,6 +226,25 @@ def _header_warnings(run: MergedRun) -> str:
         f'\n<p class="note"><strong>The phase tree overflowed</strong> — {entries:,} phase '
         "entries past the cap recorded nothing at all, so unattributed or idle-looking time "
         "may be that missing work, not idleness.</p>"
+    )
+
+
+def _excluded_workers_warning(run: MergedRun) -> str:
+    """The text report's header warning: most workers excluded, so the tiles describe a few.
+
+    Same condition as ``report._excluded_workers_warning`` — only when the excluded outnumber
+    the kept, since one superseded rerun is ordinary and Caveats already lists it.
+    """
+    if not run.superseded or len(run.superseded) <= len(run.workers):
+        return ""
+    excluded = len(run.superseded)
+    attempts = len({worker.run_id for worker in run.superseded})
+    return (
+        f'\n<p class="note"><strong>{excluded} of {excluded + len(run.workers)} worker '
+        f"file(s) are excluded</strong> as {attempts} earlier attempt(s), so every figure "
+        "on this page describes the rest — see Caveats. If these ran together, they each "
+        "generated their own run id: pass the same <code>run_id=</code> to every worker, or "
+        "let them inherit <code>PHASELOG_RUN_ID</code> from the parent.</p>"
     )
 
 
@@ -439,6 +463,8 @@ def _wait_colour(wait_pct: float) -> str:
 def _io_block(analysis: SampleAnalysis) -> str:
     if not analysis.has_samples:
         return ""
+    if analysis.io_intervals and analysis.io_gap_intervals == analysis.io_intervals:
+        return f'<h2>I/O</h2>\n<p class="note">{escape(IO_NOT_MEASURED)}</p>\n'
     totals = analysis.totals
     tiles = "".join([
         tile("read (disk)", format_bytes(totals.read_bytes)),

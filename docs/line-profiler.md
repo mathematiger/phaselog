@@ -35,7 +35,7 @@ profiler.print_global_top_stats(min_time_us=0.01, top_n=40)
 | `print_global_top_stats(top_n, min_time_us, sort_by, stream)` | Print top N lines across all functions |
 | `get_stats()` | Get raw `FunctionStats` dictionary |
 | `to_html(path, title)` | Write the annotated, heat-coloured source view |
-| `dump_stats(path)` | Write a `.lprof` file — readable by `python -m line_profiler` and `LineStats.from_files()` |
+| `dump_stats(path)` | Write a `.lprof` file — readable by `python -m line_profiler` and `line_profiler.LineStats.from_files()` |
 | `region(name)` | Name the block that follows, so its lines are reported separately |
 | `print_regions(top_n, min_time_us, stream)` | Print each region's slowest lines |
 | `region_stats()` / `region_entries()` | Per-region `FunctionStats`, and how often each was entered |

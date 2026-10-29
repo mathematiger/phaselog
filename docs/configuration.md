@@ -55,7 +55,7 @@ All three are optional and default to "everything under the project root" — th
 as constructing `LineProfiler()` directly. This table is read once per process and cached; it
 never runs on the hot per-line path.
 
-`with profiler:` (below) remains the better choice inside a Jupyter notebook or any region
+`with profiler:` ([the line profiler](line-profiler.md)) remains the better choice inside a Jupyter notebook or any region
 you're actively iterating on interactively — the two APIs are interchangeable and neither is
 deprecated by the other.
 
@@ -110,12 +110,12 @@ included). Without it the sampler still starts; those two blocks are absent, not
   absent or no CUDA device is visible
 - `Profiler(..., annotate=True)`, which wraps every phase in `torch.cuda.nvtx.range_push/pop`
   (falling back to the standalone `nvtx` package) and `torch.profiler.record_function`, so an externally started `nsys profile` or Kineto capture shows your phase names
-- `Backend.TORCH`, the `backend="torch"` window below
+- `Backend.TORCH`, the `backend="torch"` window ([heavy profilers](multiprocess.md#heavy-profilers-for-a-bounded-window))
 
 **`nvidia-ml-py`** (imported as `pynvml`) is initialised once on first use; if `nvmlInit()`
 fails — no driver, no GPU — the capability degrades to `None` and the sampler skips GPU rows.
 It supplies the two numbers the GPU block reports per device: `nvmlDeviceGetUtilizationRates`
 (whole-device `busy`) and `nvmlDeviceGetProcessUtilization` (`this run`, this pid's share).
 
-**`viztracer`** backs only `Backend.VIZTRACER`, the other heavy-profiler option below; it is
+**`viztracer`** backs only `Backend.VIZTRACER`, the other [heavy-profiler option](multiprocess.md#heavy-profilers-for-a-bounded-window); it is
 never imported for anything else.

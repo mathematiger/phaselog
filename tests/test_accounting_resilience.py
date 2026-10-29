@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from phaselog.accounting import Profiler, merge_run, render, selfio
+from phaselog.accounting import Profiler, merge_run, render, report_as_dict, selfio
 from phaselog.accounting import snapshot as snapshot_module
 from phaselog.accounting.analysis import NO_PHASE, analyse, analyse_processes
 from phaselog.accounting.compare import PhaseDelta, _comparison_notes, _delta_row
@@ -33,6 +33,7 @@ from phaselog.accounting.phasetree import PhaseStats, PhaseTree
 from phaselog.accounting.profiler import (
     _NAME_SHAPE_WARN,
     ENV_RUN_DIR,
+    MAX_DEPTH,
     MAX_PHASES,
     _resolve_run_dir,
 )
@@ -113,6 +114,7 @@ def test_the_report_declares_dropped_intervals(tmp_path: Path) -> None:
         (0.0, "train", 100_000, True),
         (1.0, "train", 0, False),
         (2.0, "train", 900_000, True),
+        (3.0, "train", 950_000, True),  # one measured interval: a floor, not "not measured"
     ])
     worker.with_suffix(".samples").write_text(
         "\n".join(
@@ -130,6 +132,29 @@ def test_the_report_declares_dropped_intervals(tmp_path: Path) -> None:
 
     assert "could not read" in text
     assert "lower bound" in text
+
+
+def test_a_platform_without_io_counters_reports_unmeasured_not_zero(tmp_path: Path) -> None:
+    """The defect, seen on macOS: with no per-process counters the sampler left ``io_ok`` at
+    its default, every row read as a measured zero, and the HTML report printed "written 0 B"
+    for a run that wrote megabytes. The text report hid it only by printing nothing."""
+    profiler = Profiler(
+        run_dir=tmp_path, enabled=True, snapshot_interval_s=None, sample_interval_s=0.02,
+    )
+    sampler = profiler._sampler  # noqa: SLF001
+    assert sampler is not None
+    sampler.capabilities.io = False  # what psutil reports on macOS
+    with profiler.phase("save"):
+        (tmp_path / "payload").write_bytes(b"x" * 200_000)
+        time.sleep(0.1)
+    profiler.close()
+
+    run = merge_run(tmp_path)
+
+    assert "Not measured" in render(run).split("I/O")[1]
+    html_io = render_html(run).split("<h2>I/O</h2>")[1].split("<h2>")[0]
+    assert "Not measured" in html_io
+    assert "0 B" not in html_io
 
 
 def test_read_io_snapshot_reports_unavailability_rather_than_zero() -> None:
@@ -329,12 +354,19 @@ def test_losing_most_of_the_workers_is_said_beside_the_process_count(tmp_path: P
         time.sleep(1.05)  # run ids carry a one-second timestamp resolution
     _one_attempt(tmp_path, "w3", 2)
 
-    report = render(merge_run(tmp_path))
+    run = merge_run(tmp_path)
+    report = render(run)
     header = report.split("FINDINGS")[0]
 
     assert "WARNING" in header, "the warning must precede the conclusions it undermines"
     assert "3 of 4 worker file(s) are excluded" in header
     assert "run_id=" in header, "the fix must be named, not just the symptom"
+
+    # The HTML report owes the same warning in its header, above the first role block —
+    # it used to list the excluded files only in Caveats at the foot of the page.
+    page_header = render_html(run).split("<h2>")[0]
+    assert "3 of 4 worker file(s) are excluded" in page_header
+    assert "run_id=" in page_header
 
 
 def test_a_single_superseded_attempt_does_not_raise_the_warning(tmp_path: Path) -> None:
@@ -351,6 +383,30 @@ def test_a_single_superseded_attempt_does_not_raise_the_warning(tmp_path: Path) 
 
     assert "WARNING" not in report.split("FINDINGS")[0]
     assert "earlier attempt" in report, "CAVEATS still declares it"
+
+
+def test_the_header_names_the_attempt_it_kept_not_the_last_metadata_writer(
+    tmp_path: Path,
+) -> None:
+    """``metadata.json`` belongs to whichever attempt wrote it last; the kept attempt is the one
+    that *started* last. Overlapping attempts — four workers each building their own
+    ``Profiler`` — disagree, and the header printed ``Run <id>`` for an attempt that CAVEATS
+    listed as excluded from every figure beneath it. Simulated here by handing the metadata
+    back to the older attempt, which is what losing that race leaves on disk."""
+    _one_attempt(tmp_path, "train", 3)
+    older = json.loads((tmp_path / "metadata.json").read_text())
+    time.sleep(1.05)  # run ids carry a one-second timestamp resolution
+    _one_attempt(tmp_path, "train", 5)
+    (tmp_path / "metadata.json").write_text(json.dumps(older))
+
+    run = merge_run(tmp_path)
+    kept = run.workers[0].run_id
+    header = render(run).split("CAVEATS")[0]
+
+    assert kept != older["run_id"]
+    assert f"Run {kept}" in header
+    assert older["run_id"] not in header, "the excluded attempt is named only under CAVEATS"
+    assert report_as_dict(run)["run"]["run_id"] == kept
 
 
 def test_workers_of_one_attempt_are_not_split(tmp_path: Path) -> None:
@@ -1317,6 +1373,30 @@ def test_an_overlong_phase_name_is_truncated_in_the_pipeline_breakdown() -> None
     assert any("x" in row for row in rows), "the informative tail must survive"
 
 
+def test_a_chain_that_never_branches_names_its_leaf_rather_than_other() -> None:
+    """``train → step → save`` used to render as one row: ``Other 100.0%``.
+
+    The descent past single-phase levels walked into the leaf ``save`` itself, which has no
+    children to share against, so its whole time became the parent's unattributed remainder.
+    It must stop at the leaf's parent and give the leaf a named row.
+    """
+    tree: PhaseTree = {}
+    for path, wall, child in (
+        (("train",), 5_300, 5_200), (("train", "step"), 5_200, 5_000),
+        (("train", "step", "save"), 5_000, 0),
+    ):
+        stats = PhaseStats()
+        stats.calls = 1
+        stats.wall_ns = wall
+        stats.child_wall_ns = child
+        tree[path] = stats
+
+    rows = _share_rows(tree)
+
+    assert rows[0].startswith("save"), rows
+    assert not any(row.startswith("Other") and "100.0%" in row for row in rows), rows
+
+
 def test_a_truncated_phase_name_keeps_its_row_numbers_aligned() -> None:
     """Truncation exists to protect the columns beside it, so check those, not just the width.
 
@@ -1779,6 +1859,31 @@ def test_phase_overflow_reaches_the_snapshot_and_the_report(
     assert "WARNING" in header
     assert "recorded nothing" in header, "the consequence must be stated, not just the event"
     assert "work" in header and "idle" in header
+
+
+def test_a_depth_fold_warns_and_reaches_the_snapshot_and_the_report(tmp_path: Path) -> None:
+    """The defect: nesting past ``MAX_DEPTH`` folded phases exactly as a full tree does —
+    recording nothing — but warned nowhere and left ``phase_overflow`` at zero, so the
+    artifact disclosed the one trigger and stayed silent about the other."""
+    profiler = Profiler(
+        run_dir=tmp_path, enabled=True, snapshot_interval_s=None, sample_interval_s=None,
+    )
+
+    def nest(levels: int) -> None:
+        if levels:
+            with profiler.phase("level"):
+                nest(levels - 1)
+
+    with pytest.warns(RuntimeWarning, match=f"deeper than {MAX_DEPTH} levels") as caught:
+        nest(MAX_DEPTH + 3)
+        nest(MAX_DEPTH + 3)
+    profiler.close()
+
+    depth_warnings = [w for w in caught if f"deeper than {MAX_DEPTH}" in str(w.message)]
+    assert len(depth_warnings) == 1, "once per profiler, not once per folded entry"
+    run = merge_run(tmp_path)
+    assert run.workers[0].phase_overflow == 6, "every folded entry is counted"
+    assert "recorded nothing" in render(run).split("RESOURCES")[0]
 
 
 def test_a_run_without_overflow_carries_no_overflow_warning(tmp_path: Path) -> None:

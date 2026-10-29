@@ -160,7 +160,7 @@ class AlignedTrace:
     Disclosed, never repaired: shifting a lane by the bound would substitute an estimate
     for a measurement, and the bound is a floor, not the offset itself."""
     phase_overflow: dict[str, int] = field(default_factory=dict)
-    """Lane-owning worker to the number of phase entries its tree folded past ``MAX_PHASES``.
+    """Lane-owning worker to the number of phase entries folded past ``MAX_PHASES``/``MAX_DEPTH``.
 
     A folded phase records *nothing* — not a span, not its time into an ancestor — so the
     lanes of an overflowed worker are drawn with gaps where real work happened. Absence on

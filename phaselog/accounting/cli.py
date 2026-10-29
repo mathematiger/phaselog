@@ -177,14 +177,14 @@ def _add_output_arguments(
     Each is offered only the formats it can actually produce, so an unsupported choice is
     rejected by argparse with the valid list rather than failing later.
     """
+    html = "; html is a single self-contained file with no external assets"
     parser.add_argument(
         "--format",
         choices=formats,
         default=default,
         help=(
             "output format. json lets a run gate CI or be diffed across sweep arms without "
-            "re-deriving the shares and quantiles; html is a single self-contained file "
-            "with no external assets"
+            "re-deriving the shares and quantiles" + (html if "html" in formats else "")
         ),
     )
     parser.add_argument(

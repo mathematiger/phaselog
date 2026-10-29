@@ -88,7 +88,10 @@ derive spans from function calls. Propagated to children, so a launcher can turn
 on for a whole pipeline without touching any worker's code."""
 
 MAX_DEPTH = 32
-"""Phases nested deeper than this are folded into their ancestor, bounding the tree size."""
+"""Phases nested deeper than this are folded into their ancestor, bounding the tree size.
+
+A folded phase records nothing; it is counted in the same ``phase_overflow`` total as a full
+tree, so the artifacts disclose both."""
 
 MAX_PHASES = 4096
 """Distinct phase paths one thread may create before further names fold into their parent.
@@ -350,6 +353,7 @@ class Profiler:
         self._snapshot_callbacks: list[Callable[[PhaseTree], None]] = []
         self._callback_failures = 0
         self._phase_overflow = 0
+        self._depth_overflow_warned = False
         self._task_concurrency_warned = False
         self._separator_names: dict[str, str] = {}
         self._window: BackendWindow | None = None
@@ -891,6 +895,27 @@ class Profiler:
             stacklevel=4,
         )
 
+    def _note_depth_overflow(self, path: PhasePath) -> None:
+        """Warn once that phases nest past ``MAX_DEPTH``, naming the first that folded.
+
+        The other trigger of the same fold as :meth:`_note_phase_overflow`, and counted in the
+        same total: a phase folded for depth records nothing either, so the snapshot and every
+        renderer must disclose it exactly as they disclose a full tree. Its own warned flag,
+        because a tree that filled first must not silence the depth warning, or vice versa.
+        """
+        self._phase_overflow += 1
+        if self._depth_overflow_warned:
+            return
+        self._depth_overflow_warned = True
+        warnings.warn(
+            f"accounting phases nested deeper than {MAX_DEPTH} levels; deeper phases are "
+            f"folded into their ancestor and record nothing. The first that did not fit was "
+            f"{path[-1]!r} under {'/'.join(path[:3])}/… — recursion through a phase, or "
+            "asyncio tasks sharing one, is the usual cause.",
+            RuntimeWarning,
+            stacklevel=3,
+        )
+
     def _note_possible_task_concurrency(self, path: PhasePath) -> None:
         """Warn once that a phase re-entered under a running event loop is not real nesting.
 
@@ -978,6 +1003,7 @@ class Profiler:
         Test specifically:
             - a forked child never writes to the parent's file
             - the child's tree starts empty rather than inheriting the parent's totals
+            - the child's overflow count starts at zero, since its tree does
             - the sampler and flush timer run again in the child
             - nesting a fork inside a phase leaves the child with a clean phase stack
             - the child's profiler-overhead total starts at zero, since its byte counters do
@@ -994,6 +1020,10 @@ class Profiler:
         self._local = threading.local()
         self._trees = []
         self._states = []
+        # The fold count describes the parent's tree, which the child no longer has; kept, it
+        # withholds every idle finding on the child's lanes for entries it never made.
+        self._phase_overflow = 0
+        self._depth_overflow_warned = False
         self._process = open_process()
         # The child's OS byte counters start at zero, so the parent's overhead total would
         # over-deduct against them for the rest of the child's life.
@@ -1389,6 +1419,7 @@ class _PhaseScope:
         if len(state.names) >= MAX_DEPTH:
             self._stats = state.nodes[-1]  # fold into the ancestor rather than grow the tree
             path = state.paths[-1]
+            self._profiler._note_depth_overflow(path + (self._name,))
         else:
             path = state.paths[-1] + (self._name,)
             stats = state.tree.get(path)

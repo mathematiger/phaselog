@@ -49,7 +49,7 @@ poetry run pytest tests/
 
 **Keep the change surgical.** Touch only what the change requires. Don't reformat adjacent code, don't refactor what is not broken, and match the surrounding style even where you would do it differently. If you notice unrelated dead code, mention it in the pull request rather than deleting it.
 
-**Zero required dependencies is a feature, not an accident.** Nothing may be added to `[project.dependencies]` (`tomli` on 3.10 is the sole exception, and it disappears above 3.10). Optional integrations go through `capabilities.py`, are imported lazily, and degrade to `None` — a missing one disables one block of the report instead of raising.
+**A minimal dependency list is a feature, not an accident.** Nothing may be added to `[project.dependencies]` beyond `line_profiler` (the C timing engine the line profiler is built on) and `tomli` on 3.10, which disappears above it. Optional integrations go through `capabilities.py`, are imported lazily, and degrade to `None` — a missing one disables one block of the report instead of raising.
 
 **The HTML output stays self-contained.** Inline CSS, hand-built SVG, no CDN, no webfont, no network of any kind. The report and source pages ship no script at all; the trace timeline is the single deliberate exception and its script writes text with `textContent`, never `innerHTML` — a phase name reaching `innerHTML` is XSS in a file people email to each other. There are tests for all of this.
 

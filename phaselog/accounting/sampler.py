@@ -354,6 +354,9 @@ class ResourceSampler:
         # too, for no reason.
         if self.capabilities.cpu:
             sample.cpu_percent = self._cpu_percent_or_unmeasured()
+        # Without counters (macOS has none per process) the row must say so: left at its
+        # default, ``io_ok`` read as a measured zero and the HTML report printed "written 0 B".
+        sample.io_ok = self.capabilities.io
         if self.capabilities.io:
             counters = read_io_snapshot(self._process)
             sample.io_ok = counters.available

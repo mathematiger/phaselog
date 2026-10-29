@@ -22,7 +22,7 @@ import pytest
 
 from phaselog import accounting
 from phaselog.accounting import Profiler, merge_run
-from phaselog.accounting.profiler import ENV_ENABLE, ENV_RUN_DIR
+from phaselog.accounting.profiler import ENV_ENABLE, ENV_RUN_DIR, MAX_DEPTH
 from phaselog.accounting.snapshot import new_run_id
 
 START_METHODS = ["spawn", "fork", "forkserver"]
@@ -216,6 +216,44 @@ def test_forked_child_starts_with_an_empty_tree(tmp_path: Path) -> None:
     assert ("child_work",) in child.tree
     assert run.tree[("parent_work",)].counters == {"parent_units": 5}
     assert run.tree[("child_work",)].counters == {"child_units": 1}
+
+
+@pytest.mark.filterwarnings("ignore:This process .*is multi-threaded")
+@pytest.mark.filterwarnings("ignore:accounting phases nested deeper")
+def test_forked_child_does_not_inherit_the_parents_overflow_count(tmp_path: Path) -> None:
+    """The child's tree starts empty, so a fold count it inherited describes entries it never
+    made — and on the timeline that count withholds every idle finding on the child's lanes."""
+    _context("fork")
+    parent = Profiler(
+        run_dir=tmp_path, role="parent", enabled=True, snapshot_interval_s=None,
+        sample_interval_s=None,
+    )
+
+    def nest(levels: int) -> None:
+        if levels:
+            with parent.phase("level"):
+                nest(levels - 1)
+
+    nest(MAX_DEPTH + 1)
+
+    child_pid = os.fork()
+    if child_pid == 0:  # pragma: no cover - runs only in the forked child
+        try:
+            with parent.phase("child_work"):
+                pass
+            parent.close()
+        finally:
+            os._exit(0)
+
+    os.waitpid(child_pid, 0)
+    parent.close()
+
+    run = merge_run(tmp_path)
+    child = next(w for w in run.workers if w.pid == child_pid)
+    parent_worker = next(w for w in run.workers if w.pid == os.getpid())
+
+    assert parent_worker.phase_overflow == 1, "the parent's own fold is still disclosed"
+    assert child.phase_overflow == 0, "the child inherited the parent's overflow count"
 
 
 @pytest.mark.filterwarnings("ignore:This process .*is multi-threaded")

@@ -204,7 +204,7 @@ def _header(aligned: AlignedTrace, title: str, run: MergedRun) -> str:
         tile("arrows", str(len(aligned.arrows))),
         tile("waiting", "n/a" if waiting < 0 else f"{waiting:.0f}%"),
     ])
-    run_id = escape(str(run.metadata.get("run_id", "unknown")))
+    run_id = escape(str(run.run_id or "unknown"))
     source = source_of(run.metadata)
     source_html = f" · {escape(source)}" if source else ""
     stepped = clock_step_note(aligned.clock_steps)
@@ -249,8 +249,8 @@ def _overflow_note(run: MergedRun) -> str:
         f'<p class="warn">The phase tree overflowed{where}: {entries:,} phase {noun} past '
         "the cap recorded nothing at all — no span, and not their time into an ancestor. An "
         "empty stretch on those lanes may be that missing work, so read it as unknown rather "
-        "than as capacity nobody used. A phase name built from data is the usual cause; use "
-        "a fixed name and count() instead.</p>\n"
+        "than as capacity nobody used. A phase name built from data, or phases nested past "
+        "the depth cap (recursion, asyncio tasks), is the cause.</p>\n"
     )
 
 
@@ -795,7 +795,7 @@ def _payload(
     origins, origin_index = _origin_table(drawn)
 
     return {
-        "run_id": str(run.metadata.get("run_id", "unknown")),
+        "run_id": str(run.run_id or "unknown"),
         "duration_us": aligned.duration_ns / 1000.0,
         "omitted": omitted,
         "lanes": [
@@ -1217,7 +1217,8 @@ _SCRIPT = r"""
 
     var text = 'during ' + fmt(window) + ': ';
     if (!parts.length) {
-      text += 'no lane had a phase open — a stall, not a queue.';
+      // An empty window is not a wait: nothing here was blocked, so it cannot be a stall.
+      text += 'no lane had a phase open — idle, or work outside any phase.';
     } else {
       var shown = [];
       for (var k = 0; k < parts.length && k < 6; k++) {
@@ -1484,6 +1485,9 @@ _SCRIPT = r"""
     var busy = concurrentLanes(focus);
     if (busy.length) {
       focusPanel.appendChild(named('div', '', 'while it ran: ' + busy.join(', ')));
+    } else if (lanes.length < 2) {
+      focusPanel.appendChild(named('div', '',
+        'this run recorded no other lane, so it cannot say what this was waiting for'));
     } else {
       focusPanel.appendChild(named('div', '',
         'no other lane had a phase open while it ran — a stall, not a queue'));

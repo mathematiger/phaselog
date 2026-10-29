@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -130,7 +131,8 @@ def test_report_shows_entry_counts_without_any_counter(tmp_path: Path) -> None:
 
     rows = render(merge_run(tmp_path)).split("\n")
     header = next(row for row in rows if row.startswith("DOMINANT PHASES"))
-    step = next(row for row in rows if row.startswith("step"))
+    # Below the header: the role table above it carries its own ``step`` row.
+    step = next(row for row in rows[rows.index(header):] if row.startswith("step"))
 
     assert "entries" in header
     assert len(step) == len(header)
@@ -660,7 +662,9 @@ def _read_whole(path: Path, drop_cache: bool) -> int:
     """Read a file, optionally evicting its pages first so the bytes come off the disk."""
     fd = os.open(path, os.O_RDONLY)
     try:
-        if drop_cache and hasattr(os, "posix_fadvise"):
+        # A platform check, not hasattr: mypy narrows on sys.platform, and typeshed only
+        # declares POSIX_FADV_DONTNEED for Linux.
+        if drop_cache and sys.platform == "linux":
             os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
         total = 0
         while chunk := os.read(fd, 1 << 20):

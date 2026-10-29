@@ -32,18 +32,27 @@ profiler.print_stats()
 ```
 ====================================================================================================
 File: /path/to/example.py
-Function: slow_function at line 3
-Total time: 710676.0 µs
+Function: <module> at line 1
+Total time: 270824.0 µs
 ====================================================================================================
 Line #   Hits       Time (µs)       Per Hit (µs)    % Time     Line Content
 ----------------------------------------------------------------------------------------------------
-6        1000000    364848.9        0.4             51.3       total += i * i
-5        1000001    345825.8        0.3             48.7       for i in range(1_000_000):
-7        1          0.7             0.7             0.0        return total
-4        1          0.6             0.6             0.0        total = 0
+12       1          270824.0        270824.0        100.0          slow_function()
+
+====================================================================================================
+File: /path/to/example.py
+Function: slow_function at line 4
+Total time: 225498.0 µs
+====================================================================================================
+Line #   Hits       Time (µs)       Per Hit (µs)    % Time     Line Content
+----------------------------------------------------------------------------------------------------
+5        1          0.0             0.0             0.0            total = 0
+6        1000001    104115.0        0.1             46.2           for i in range(1_000_000):
+7        1000000    121382.0        0.1             53.8               total += i * i
+8        1          1.0             1.0             0.0            return total
 ```
 
-(numbers vary by machine; `File:` prints the absolute path)
+(numbers vary by machine; `File:` prints the absolute path; rows are in source order — pass `sort_by="time"` to rank them. The `with` block's own frame is reported too, which is where the call line is billed for the whole call.)
 
 No decorators to add, no separate `kernprof` run, no build step. Only code under your project folder is traced — the folder is auto-detected by walking up to the nearest `.git` — so the output is your code, not the standard library. Closures, methods, and modules imported inside the block are all found on their first call.
 
@@ -82,7 +91,7 @@ They share nothing but the distribution: `accounting` never imports `LineProfile
 ```python
 from phaselog.accounting import start, stop
 
-start(role="actor")     # or Profiler(...) / with profiler.phase(...)
+start(run_dir="profile", role="actor")   # or Profiler(...) / with profiler.phase(...)
 ...
 stop()
 ```
@@ -439,10 +448,7 @@ Note also what the `r` column says: **0 B read from disk** in every phase, with 
 
 Wrap the candidate regions in `io=True`, read the `MB/s` column, and compare it to what the device should do. A large gap means the fix is a bigger batch, not a faster disk.
 
-> `io=True` needs `psutil` (`pip install phaselog[resources]`); without it the phase
-> still times normally and the byte columns are omitted rather than reported as zero. It reads
-> `/proc` at each end — tens of microseconds — so it belongs on coarse regions that really
-> touch the disk, never on an inner loop.
+> `io=True` needs `psutil` (`pip install phaselog[resources]`) and per-process byte counters, which Linux and Windows have and macOS does not; without them the phase still times normally and the byte columns are omitted rather than reported as zero. It reads `/proc` at each end — tens of microseconds — so it belongs on coarse regions that really touch the disk, never on an inner loop.
 
 ## What it is built on, and what it plugs into
 
@@ -505,9 +511,9 @@ Now an externally started [`nsys profile`](https://developer.nvidia.com/nsight-s
 
 ### How to tell what is missing
 
-A resource that was never measured is never rendered as zero — the report omits the block and says why. Compare the two worked examples above: the MCTS run prints an empty `RESOURCES` section because `psutil` was not installed for it, while the I/O run — which needs `psutil` for `io=True` — prints CPU, RAM and the exact per-phase byte columns. If a block you expected is absent, install the matching extra above and re-run.
+A resource that was never measured is never rendered as zero — the report omits the block or says "not measured". Without `psutil` the `RESOURCES` section has no CPU or RAM rows; on macOS, which has no per-process byte counters, the `I/O` block says it was not measured instead of printing `0 B`. If a block you expected is absent, install the matching extra above and re-run.
 
-The GPU block in the I/O example shows the same principle from the other side: it reports `busy 0.0%` (a real measurement — the device was idle) but `this run n/a` (NVML never attributed a sample to these pids, because no work of ours ran there). Those are different statements, and the report keeps them apart.
+The GPU block applies the same rule from the other side: it can report `busy 0.0%` (a real measurement — the device was idle) next to `this run n/a` (NVML never attributed a sample to these pids, because no work of ours ran there). Those are different statements, and the report keeps them apart.
 
 ## Documentation
 
