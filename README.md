@@ -529,7 +529,7 @@ Full detail in [CHANGELOG.md](https://github.com/mathematiger/phaselog/blob/main
 
 | Version | Major changes |
 |---|---|
-| **0.11.0** | Renamed to `phaselog` (distribution, import, CLI, environment variables, config table). Cross-host clock skew detected and disclosed; crashed and overflowed runs disclosed on every page; `phaselog trace --format chrome` for Perfetto; a differential test across the two builtin backends. |
+| **0.11.0** | Renamed to `phaselog` (distribution, import, CLI, environment variables, config table). Cross-host clock skew detected and disclosed; crashed and overflowed runs disclosed on every page; `phaselog trace --format chrome` for Perfetto; a differential test across the two builtin backends. The C engine is the default on 3.12+ only, and `line_profiler` is capped below 5.1, which recorded nothing. |
 | **0.10.0** | `with profiler.region("select"):` — per-line statistics partitioned by a named block, on both engines, with `print_regions()`. |
 | **0.9.0** | The line profiler is now a front end over `line_profiler`'s C engine: 3.7x faster, correct inclusive billing for a line that calls a function, and correct under threads. `lineprofiler run script.py`, `dump_stats()` to `.lprof`, `start_profiling(enabled=True)`, `print_stats(stream=...)` in source order. |
 | **0.8.5** | This version history. |
@@ -549,7 +549,7 @@ Full detail in [CHANGELOG.md](https://github.com/mathematiger/phaselog/blob/main
 
 ## Python support
 
-3.10 and newer. On 3.12+ the line profiler finds functions through `sys.monitoring`, so it discovers closures, scripts and late imports on their first call, and it can run alongside coverage.py and pdb. Below 3.12 it registers the in-project modules already imported and misses anything imported later. `tomli` is required only on 3.10, where `tomllib` is not yet in the standard library.
+3.10 and newer. On 3.12+ the line profiler finds functions through `sys.monitoring`, so it discovers closures, scripts and late imports on their first call, and it can run alongside coverage.py and pdb. Below 3.12 the default is the pure-Python engine on `sys.settrace`, about 3.8x the cost per line event (~915 ns against ~240 ns) but complete: the C engine there would silently miss threads, closures, late imports and scripts. `tomli` is required only on 3.10, where `tomllib` is not yet in the standard library.
 
 ## Licence
 

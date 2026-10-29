@@ -42,8 +42,11 @@ classifiers = [
 # wheels for every supported interpreter, and the pure-Python engine remains as the fallback
 # for the interpreter it does not import on. tomllib entered the stdlib in 3.11; on 3.10 the
 # config reader needs its backport.
+# Capped below 5.1: 5.1.0 pads every profiled function's bytecode even with the padding table
+# cleared, and the engine never pads the caller's functions, so every line hash missed and the
+# C engine recorded nothing at all. Lift the cap only with a test run against the new release.
 dependencies = [
-    "line_profiler>=5.0",
+    "line_profiler>=5.0,<5.1",
     "tomli>=2.0; python_version < '3.11'",
 ]
 

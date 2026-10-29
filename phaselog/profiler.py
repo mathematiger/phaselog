@@ -51,7 +51,15 @@ def _default_backend() -> Backend:
 
 
 def _default_engine() -> Engine:
-    """Return ``"line_profiler"`` where the C engine is installed, else ``"builtin"``."""
+    """Return ``"line_profiler"`` where it is installed on 3.12+, else ``"builtin"``.
+
+    Below 3.12 the C engine has no discovery hook and ``line_profiler`` does not trace threads
+    started inside the block, so threads, closures, late imports and ``phaselog run`` scripts
+    were silently missing from its reports. The builtin engine's ``sys.settrace`` backend
+    covers all four, so it is the default there; ``engine="line_profiler"`` remains available.
+    """
+    if _MONITORING is None:
+        return "builtin"
     return "line_profiler" if importlib.util.find_spec("line_profiler") else "builtin"
 
 
@@ -141,8 +149,8 @@ class LineProfiler:
     ``engine="line_profiler"`` (the default where the package is installed) hands the timing
     to ``line_profiler``'s C callback and only decides *what* it watches — every admitted
     function, discovered on first call on 3.12+ and up front below that. ``engine="builtin"``
-    is pure Python, chosen automatically when ``line_profiler`` is absent or when ``backend=``
-    is passed.
+    is pure Python, chosen automatically below 3.12, when ``line_profiler`` is absent, or when
+    ``backend=`` is passed.
 
     Timing model (both engines)
     ---------------------------
@@ -181,7 +189,7 @@ class LineProfiler:
                 Passing it selects the builtin engine. Passing ``"monitoring"`` below 3.12
                 raises rather than quietly downgrading.
             engine: ``"line_profiler"`` or ``"builtin"``. Defaults to ``"line_profiler"``
-                where it is installed, else ``"builtin"``.
+                where it is installed on 3.12+, else ``"builtin"``.
         """
         if backend == "monitoring" and _MONITORING is None:
             raise ValueError(

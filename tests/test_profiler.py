@@ -596,8 +596,10 @@ def test_a_call_line_is_billed_the_whole_call() -> None:
     assert call_line.total_time >= stats_for(profiler, "inner").total_time * 0.9
 
 
-def test_threads_started_inside_the_block_are_profiled_exactly() -> None:
+def test_threads_started_inside_the_block_are_profiled_exactly(mode: str) -> None:
     """Four threads, every hit counted once. One shared "last line" used to race here."""
+    if mode == "line_profiler" and _MONITORING is None:
+        pytest.skip("below 3.12 line_profiler does not trace threads started in the block")
     profiler = LineProfiler(project_folder=THIS_DIR)
     with profiler:
         threads = [threading.Thread(target=loop_sum, args=(500,)) for _ in range(4)]
@@ -776,11 +778,13 @@ def test_print_regions_says_so_when_none_were_used(
 # --------------------------------------------------------------------------- #
 # Engine selection and interoperability with line_profiler
 # --------------------------------------------------------------------------- #
-def test_the_engine_defaults_to_line_profiler_where_installed(
+def test_the_engine_defaults_to_line_profiler_on_3_12_and_builtin_below(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Below 3.12 the C engine silently misses threads, closures and late imports."""
     monkeypatch.undo()  # the mode fixture pins the default; this test asks what it really is
-    assert LineProfiler(project_folder=THIS_DIR).engine == "line_profiler"
+    expected = "line_profiler" if _MONITORING is not None else "builtin"
+    assert LineProfiler(project_folder=THIS_DIR).engine == expected
 
 
 def test_passing_a_backend_selects_the_builtin_engine(backend: str) -> None:
@@ -986,9 +990,13 @@ def test_start_profiling_enabled_false_wins_over_the_environment(
 
 
 def test_phaselog_run_profiles_a_script_without_editing_it(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    mode: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """The ``kernprof`` equivalent: a script, no decorators, its own exit status kept."""
+    _needs_monitoring_for_discovery(mode)
     from phaselog.accounting.cli import main
 
     (tmp_path / ".git").mkdir()
@@ -1132,6 +1140,7 @@ def test_a_generators_yield_line_is_not_billed_the_consumers_time(tmp_path: Path
 
 
 def test_time_in_a_multiframe_library_callee_lands_on_the_calling_line(
+    mode: str,
     tmp_path: Path,
 ) -> None:
     """A non-project callee's time belongs to the project line that called it.
@@ -1140,6 +1149,7 @@ def test_time_in_a_multiframe_library_callee_lands_on_the_calling_line(
     callee closed the caller's armed line early, so everything the callee did after that
     return vanished. Nearly every site-packages call has more than one Python frame.
     """
+    _needs_monitoring_for_discovery(mode)
     library = _outside_module(
         tmp_path,
         "slow_library",

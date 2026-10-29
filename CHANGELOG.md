@@ -14,6 +14,12 @@ The distribution, the import package and the CLI were all one underscore away fr
 
 There is no compatibility shim: at 0.x, an alias that silently keeps working is a worse outcome than an import error that names its own fix. The `import with_line_profiler` alias added in 0.8.4 is removed with the rest — it existed because the pip name and the import name differed, and now they do not. The migration is mechanical — `sed -i 's/with_line_profiler/phaselog/g; s/lineprofiler/phaselog/g; s/LINEPROFILER_/PHASELOG_/g' <your files>`. `LineProfiler`, `Profiler`, `phase()`, `count()` and every other public symbol keep their names and signatures; only the package they live in changed. `with-line-profiler` on PyPI stops receiving releases at 0.10.0.
 
+### Fixed — the line profiler recorded nothing with `line_profiler` 5.1, and missed work below Python 3.12
+
+`line_profiler` 5.1.0 pads every function it profiles, even with the padding table cleared, and this engine deliberately never rewrites the caller's functions — so every line hash missed and the default engine reported "No profiling data" for code that ran, on every interpreter. A fresh `pip install` resolved 5.1.0, which is how the sdist CI job went red while the locked 5.0.2 stayed green. The dependency is capped at `<5.1` until the engine is validated against the new release.
+
+Below 3.12 the C engine has no discovery hook and `line_profiler` does not trace threads started inside the block, so threads, closures, late imports and `phaselog run` scripts were silently missing from its reports — the 3.10 and 3.11 CI legs had been failing on exactly those tests since 0.9.0. The default there is now the builtin engine on `sys.settrace`, which covers all four; `engine="line_profiler"` remains available with its documented limits.
+
 ### Added — contributor documentation
 
 `CONTRIBUTING.md` states what the project asks of a change (a failing test first, the ledger row, the rendered-page read) and how to run the four checks. GitHub issue forms separate a wrong-number report — the failure class this project exists to prevent, and the one where the artifacts matter — from a crash, a feature request and a question, and a pull-request template asks for the evidence rather than a description.

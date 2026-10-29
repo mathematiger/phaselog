@@ -126,16 +126,14 @@ run's regions can sum to slightly less than the session.
 
 | `engine` | What runs | Cost per line event |
 |---|---|---|
-| `"line_profiler"` (default where installed) | `line_profiler`'s C callback, fed by a `sys.monitoring` discovery hook | ~240 ns |
+| `"line_profiler"` (default on 3.12+ where installed) | `line_profiler`'s C callback, fed by a `sys.monitoring` discovery hook | ~240 ns |
 | `"builtin"` | this package's pure-Python callback on `sys.monitoring` (3.12+) or `sys.settrace` | ~895 ns / ~915 ns |
 
 Both bill a line that calls a function for the whole call, both keep per-thread state, and both
 feed the same reports — the engine changes what the measurement costs, not what it means.
 Passing `backend="monitoring"` or `backend="settrace"` selects the builtin engine.
 
-Below Python 3.12 the C engine has no discovery hook, so it registers the functions of every
-in-project module already imported and misses anything imported later; on 3.12+ everything is
-found on its first call, closures and `runpy` scripts included.
+Below Python 3.12 the default is the builtin engine on `sys.settrace`. The C engine has no discovery hook there, so it registers only the functions of in-project modules already imported, and `line_profiler` does not trace threads started inside the block — threads, closures, late imports and `runpy` scripts would be silently missing. `engine="line_profiler"` still selects it for code those limits do not touch. On 3.12+ everything is found on its first call, closures and `runpy` scripts included.
 
 ## Running a script without editing it
 
