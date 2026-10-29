@@ -34,7 +34,7 @@ from phaselog.accounting.capabilities import (
     psutil_module,
     torch_module,
 )
-from phaselog.accounting.selfio import bytes_written, record_bytes_written
+from phaselog.accounting.selfio import bytes_written, exclusive, record_bytes_written
 
 _CPU_MIN_TICKS = 4.0
 """Scheduler ticks a CPU-percentage reading must span before it means anything.
@@ -329,19 +329,20 @@ class ResourceSampler:
     def _write_row(self, handle: TextIO) -> None:
         """Append one row, declaring what it cost so no phase is billed for the profiler."""
         line = json.dumps(_compact(self.take())) + "\n"
-        before = read_io_snapshot(self._process)
-        try:
-            handle.write(line)
-            handle.flush()
-        except OSError:
-            self.write_failures += 1
-            return
-        after = read_io_snapshot(self._process)
-        if before.available and after.available:
-            record_bytes_written(
-                len(line.encode("utf-8")),
-                max(0, after.write_bytes - before.write_bytes),
-            )
+        with exclusive():
+            before = read_io_snapshot(self._process)
+            try:
+                handle.write(line)
+                handle.flush()
+            except OSError:
+                self.write_failures += 1
+                return
+            after = read_io_snapshot(self._process)
+            if before.available and after.available:
+                record_bytes_written(
+                    len(line.encode("utf-8")),
+                    max(0, after.write_bytes - before.write_bytes),
+                )
 
     def _add_process_metrics(self, sample: Sample) -> None:
         if self._process is None:

@@ -20,6 +20,10 @@ There is no compatibility shim: at 0.x, an alias that silently keeps working is 
 
 Below 3.12 the C engine has no discovery hook and `line_profiler` does not trace threads started inside the block, so threads, closures, late imports and `phaselog run` scripts were silently missing from its reports — the 3.10 and 3.11 CI legs had been failing on exactly those tests since 0.9.0. The default there is now the builtin engine on `sys.settrace`, which covers all four; `engine="line_profiler"` remains available with its documented limits.
 
+### Fixed — an `io=True` phase could be billed for one of the profiler's own writes
+
+Each of the profiler's own writes is bracketed — counters read, the write, counters read again, the cost recorded — so it can be deducted from whichever phase is open. A phase that ended between the write syscall and that record saw the bytes in the OS counter but not in the deduction, and reported a sampler row or a snapshot (765 chars, 4 KiB of block traffic in the observed case) for a phase that touched no file. It surfaced as a test that failed about one run in eight on 3.11 and had been documented as load-sensitive. The bracket and a phase's counter reading are now atomic with respect to each other; the wait sits outside the phase's clock, and `phase(io=True)` costs the same.
+
 ### Added — contributor documentation
 
 `CONTRIBUTING.md` states what the project asks of a change (a failing test first, the ledger row, the rendered-page read) and how to run the four checks. GitHub issue forms separate a wrong-number report — the failure class this project exists to prevent, and the one where the artifacts matter — from a crash, a feature request and a question, and a pull-request template asks for the evidence rather than a description.

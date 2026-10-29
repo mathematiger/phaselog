@@ -21,7 +21,8 @@ from pathlib import Path
 
 import pytest
 
-from phaselog.accounting import Profiler, merge_run, render
+from phaselog.accounting import Profiler, merge_run, render, selfio
+from phaselog.accounting import snapshot as snapshot_module
 from phaselog.accounting.analysis import NO_PHASE, analyse, analyse_processes
 from phaselog.accounting.compare import PhaseDelta, _comparison_notes, _delta_row
 from phaselog.accounting.findings import Finding
@@ -159,6 +160,42 @@ def test_an_io_phase_records_nothing_when_a_boundary_read_failed(tmp_path: Path)
 
     counters = merge_run(tmp_path).tree[("checkpoint",)].counters
     assert not any(name.startswith("io_") for name in counters), counters
+
+
+def test_a_phase_ending_inside_a_self_write_is_not_billed_for_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The defect: a phase exiting between one of the profiler's own write syscalls and its
+    ``record_bytes_written`` saw the bytes in the OS counter but not in the deduction, so a
+    phase that wrote nothing was billed a snapshot. Seen as an intermittent failure of
+    ``test_the_profilers_own_writes_are_not_attributed_to_a_phase``."""
+    profiler = Profiler(
+        run_dir=tmp_path, enabled=True, snapshot_interval_s=None, sample_interval_s=None,
+    )
+    if profiler.io_counters().is_empty():
+        profiler.close()
+        pytest.skip("per-process io counters unavailable on this platform")
+    written = threading.Event()
+    record = selfio.record_bytes_written
+
+    def slow_record(chars: int, block_bytes: int = 0) -> None:
+        # Holds the writer between its syscall and its record — the window the phase used to
+        # exit inside. The fixed path does not depend on the delay: the phase waits for it.
+        written.set()
+        time.sleep(0.2)
+        record(chars, block_bytes)
+
+    monkeypatch.setattr(snapshot_module, "record_bytes_written", slow_record)
+    writer = threading.Thread(target=profiler.snapshot)
+    with profiler.phase("compute", io=True):
+        writer.start()
+        written.wait()
+    writer.join()
+    monkeypatch.undo()
+    profiler.close()
+
+    counters = merge_run(tmp_path).tree[("compute",)].counters
+    assert counters.get("io_write_chars", 0) == 0, f"billed {counters} for the profiler's write"
 
 
 # ── a failing snapshot must not end flushing ────────────────────────────────

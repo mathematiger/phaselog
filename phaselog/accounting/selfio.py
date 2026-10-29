@@ -48,6 +48,18 @@ def record_bytes_written(chars: int, block_bytes: int = 0) -> None:
         _block_bytes += block_bytes
 
 
+def exclusive() -> threading.RLock:
+    """The lock that makes one self-write, or one phase's counter reading, atomic.
+
+    A self-write holds it from its first counter read to its ``record_bytes_written``; an
+    ``io=True`` phase holds it while it reads the process counters and these totals as a
+    pair. Without that, a phase ending between a write's syscall and its record saw the bytes
+    in the OS counter but not in the deduction, and billed one sampler row or snapshot to a
+    phase that wrote nothing.
+    """
+    return _lock
+
+
 def bytes_written() -> tuple[int, int]:
     """Return ``(chars, block_bytes)`` written by this process's profiler for bookkeeping."""
     with _lock:

@@ -56,6 +56,7 @@ from phaselog.accounting.sampler import (
     read_io_snapshot,
 )
 from phaselog.accounting.selfio import bytes_written as selfio_bytes_written
+from phaselog.accounting.selfio import exclusive as selfio_exclusive
 from phaselog.accounting.selfio import reset as selfio_reset
 from phaselog.accounting.snapshot import SnapshotWriter, new_run_id
 from phaselog.accounting.trace import (
@@ -1412,8 +1413,11 @@ class _PhaseScope:
         if window is not None:
             window.on_phase_enter(self._name)
         if self._io:
-            self._io0 = self._profiler.io_counters()
-            self._self_io0 = selfio_bytes_written()
+            # One atomic pair: a self-write between the two reads would be deducted without
+            # its bytes having been counted, or counted without being deducted.
+            with selfio_exclusive():
+                self._io0 = self._profiler.io_counters()
+                self._self_io0 = selfio_bytes_written()
 
         # Inlined rather than delegated: annotation is off by default, and a method call
         # on each side of every phase is measurable at roughly a microsecond per phase.
@@ -1576,14 +1580,15 @@ class _PhaseScope:
         overhead in place, because rewriting a small worker file costs several whole blocks
         for data, inode and journal — measured at eight times the bytes handed to ``write``.
         """
-        now = self._profiler.io_counters()
+        with selfio_exclusive():
+            now = self._profiler.io_counters()
+            chars_after, blocks_after = selfio_bytes_written()
         if not (now.available and self._io0.available):
             # Cumulative counters: differencing against a reading that never happened would
             # bill this phase for the process's entire lifetime of traffic, in the block the
             # report presents as exactly measured. Record nothing instead.
             return
         chars_before, blocks_before = self._self_io0
-        chars_after, blocks_after = selfio_bytes_written()
         # Scaled by the same factor as the time around it. Bytes measured on one entry in n,
         # sitting beside a duration scaled to all n, would be two rates in one row.
         self._add_delta(stats, "io_read_bytes", (now.read_bytes - self._io0.read_bytes) * scale)

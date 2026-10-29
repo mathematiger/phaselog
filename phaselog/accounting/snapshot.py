@@ -40,7 +40,7 @@ from phaselog.accounting.sampler import (
     read_io_snapshot,
     read_samples,
 )
-from phaselog.accounting.selfio import record_bytes_written
+from phaselog.accounting.selfio import exclusive, record_bytes_written
 from phaselog.accounting.trace import ClockAnchor, Link, Origin, Span, WorkerTrace
 
 FORMAT_VERSION = 1
@@ -140,18 +140,19 @@ class SnapshotWriter:
         }
         document = json.dumps(payload)
         temporary = self.path.with_suffix(".tmp")
-        before = read_io_snapshot(self._process)
-        try:
-            _write_atomic(temporary, self.path, document)
-        except OSError as error:
-            self._note_failure(error)
-            return False
-        after = read_io_snapshot(self._process)
-        if before.available and after.available:
-            record_bytes_written(
-                len(document.encode("utf-8")),
-                max(0, after.write_bytes - before.write_bytes),
-            )
+        with exclusive():
+            before = read_io_snapshot(self._process)
+            try:
+                _write_atomic(temporary, self.path, document)
+            except OSError as error:
+                self._note_failure(error)
+                return False
+            after = read_io_snapshot(self._process)
+            if before.available and after.available:
+                record_bytes_written(
+                    len(document.encode("utf-8")),
+                    max(0, after.write_bytes - before.write_bytes),
+                )
         return True
 
     def _note_failure(self, error: OSError) -> None:
@@ -200,19 +201,20 @@ class SnapshotWriter:
             "links": [link.to_dict() for link in links],
         }
         line = json.dumps(payload) + "\n"
-        before = read_io_snapshot(self._process)
-        try:
-            with self.trace_path.open("a", encoding="utf-8") as handle:
-                handle.write(line)
-        except OSError as error:
-            self._note_failure(error)
-            return False
-        after = read_io_snapshot(self._process)
-        if before.available and after.available:
-            record_bytes_written(
-                len(line.encode("utf-8")),
-                max(0, after.write_bytes - before.write_bytes),
-            )
+        with exclusive():
+            before = read_io_snapshot(self._process)
+            try:
+                with self.trace_path.open("a", encoding="utf-8") as handle:
+                    handle.write(line)
+            except OSError as error:
+                self._note_failure(error)
+                return False
+            after = read_io_snapshot(self._process)
+            if before.available and after.available:
+                record_bytes_written(
+                    len(line.encode("utf-8")),
+                    max(0, after.write_bytes - before.write_bytes),
+                )
         return True
 
 
@@ -712,7 +714,7 @@ def _write_metadata_once(
     document = json.dumps(payload, indent=2)
     process = open_process()
     temporary = run_dir / f".metadata.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp"
-    with contextlib.suppress(OSError):
+    with contextlib.suppress(OSError), exclusive():
         before = read_io_snapshot(process)
         _write_atomic(temporary, path, document)
         after = read_io_snapshot(process)
