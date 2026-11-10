@@ -306,6 +306,32 @@ def test_escape_leaves_ordinary_text_untouched() -> None:
     assert escape("<b>&\"") == "&lt;b&gt;&amp;&quot;"
 
 
+def test_the_icicle_tooltip_breaks_lines_without_a_replacement_character(tmp_path: Path) -> None:
+    """The tooltip's own line breaks are layout, not user data.
+
+    0.11.0 passed the whole multi-line tooltip through ``escape``, which turned every
+    newline into U+FFFD, so each cell's hover text showed a broken glyph where its lines
+    should break. Hosts that reject U+FFFD then refused the whole page. A newline *inside*
+    a phase name must still be neutralised.
+    """
+    _build_fixed_run(tmp_path)
+    html = render_html(merge_run(tmp_path))
+
+    assert "�" not in html
+    tooltips = re.findall(r"<title>(.*?)</title>", html, re.DOTALL)[1:]
+    assert tooltips and all(tip.count("\n") == 2 for tip in tooltips)
+
+    profiler = Profiler(
+        run_dir=tmp_path / "hostile", role="probe", enabled=True,
+        snapshot_interval_s=None, sample_interval_s=None,
+    )
+    with profiler, profiler.phase("a\nb"):
+        pass
+    hostile_html = render_html(merge_run(tmp_path / "hostile"))
+    tips = re.findall(r"<title>(.*?)</title>", hostile_html, re.DOTALL)
+    assert any("a�b" in tip for tip in tips)
+
+
 def test_an_overlong_phase_name_is_bounded_in_the_html_report(tmp_path: Path) -> None:
     """The icicle page has the same unbounded-label problem the text report had.
 

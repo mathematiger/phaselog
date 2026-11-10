@@ -2,7 +2,11 @@
 
 All notable changes to this project are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [semantic](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.11.1] - 2026-11-10
+
+### Fixed — the icicle tooltips carried U+FFFD instead of line breaks
+
+Each cell's hover text in the HTML report was built as three lines and passed whole through `htmldoc.escape`, which replaces control characters (newline included) with U+FFFD. Every tooltip showed a replacement glyph where its lines should break, and hosts that reject U+FFFD refused the page outright. Each line is now escaped separately and the lines are joined with a real newline. A newline *inside* a phase name is still neutralised.
 
 ### Fixed — nesting past `MAX_DEPTH` folded phases silently
 

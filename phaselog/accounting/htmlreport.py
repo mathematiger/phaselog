@@ -424,10 +424,15 @@ def _flame_rect(cell: FlameCell) -> str:
     width = max(cell.width * _CHART_WIDTH, 1.0)
     y = cell.depth * _ROW_HEIGHT
     fill = _wait_colour(cell.wait_pct)
-    tooltip = escape(
-        f"{clip_label('/'.join(cell.path))}\n"
-        f"wall {format_ns(cell.wall_ns)}  self {format_ns(cell.self_ns)}\n"
-        f"calls {cell.calls}  wait {cell.wait_pct:.0f}%",
+    # Escaped line by line: `escape` turns a newline into U+FFFD, which is right for one inside
+    # a phase name and wrong for the breaks this tooltip is laid out with.
+    tooltip = "\n".join(
+        escape(line)
+        for line in (
+            clip_label("/".join(cell.path)),
+            f"wall {format_ns(cell.wall_ns)}  self {format_ns(cell.self_ns)}",
+            f"calls {cell.calls}  wait {cell.wait_pct:.0f}%",
+        )
     )
     # Roughly seven pixels a character; a label that cannot fit is dropped rather than
     # allowed to spill across its neighbours.
